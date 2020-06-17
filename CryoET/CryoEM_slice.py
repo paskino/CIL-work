@@ -144,7 +144,7 @@ with mrcfile.open('tomo_01.ali') as mrc:
 slices_output = 100
 border_size = 0
 slices_tot = slices_output + 2 * border_size
-number_blocks = int(np.floor (ag_full.pixel_num_h / slices_tot))
+number_blocks = int(np.floor (ag_full.pixel_num_v / slices_output))
 
 #set order to process blocks
 #currently starting from the middle and working out
@@ -158,7 +158,7 @@ for i in range(1,number_blocks):
 
 #%% run
 for i in block_order:
-    print("Processing block ", i + 1, " of  ", number_blocks)
+    print("Processing block ", i)
     ind_start = i * slices_output
     ind_end = ind_start + slices_tot
         
@@ -241,7 +241,7 @@ for i in block_order:
 
         writer = TIFFWriter()
         writer.set_up(data_container=data_reconstructed, 
-                    file_name="out2/test_reco.tiff",
+                    file_name="out3/LS_reco.tiff",
                     counter_offset=ind_start + border_size )
         writer.write()
 
