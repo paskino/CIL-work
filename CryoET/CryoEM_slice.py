@@ -1,14 +1,15 @@
-import numpy as np
+#%% imports
+# import numpy as np
 import mrcfile
 from ccpi.io import *
 from ccpi.framework import AcquisitionData, AcquisitionGeometry, ImageGeometry, ImageData
 from ccpi.optimisation.algorithms import CGLS, PDHG, FISTA
 from ccpi.optimisation.operators import BlockOperator, Gradient
-from ccpi.optimisation.functions import L2NormSquared, ZeroFunction, MixedL21Norm, L1Norm
+from ccpi.optimisation.functions import L2NormSquared, ZeroFunction, MixedL21Norm, L1Norm, LeastSquares
 
 from ccpi.astra.operators import AstraProjectorSimple , AstraProjector3DSimple
 from ccpi.astra.processors import FBP
-
+from ccpi.plugins.regularisers import FGP_TV
 # from ccpi.utilities.jupyter import islicer, link_islicer
 from ccpi.utilities.display import plotter2D
 
@@ -18,9 +19,6 @@ import os
 import sys
 import scipy
 
-import numpy as np
-import os
-from ccpi.framework import AcquisitionData, AcquisitionGeometry, ImageData, ImageGeometry
 import datetime
 from PIL import Image
 
@@ -29,7 +27,7 @@ from ccpi.optimisation.operators import Identity
 from ccpi.framework import BlockDataContainer
 from ccpi.processors import Resizer
 
-
+#%% Create TIFFWriter
 class TIFFWriter(object):
     
     def __init__(self,
@@ -102,223 +100,187 @@ class TIFFWriter(object):
             raise ValueError('Cannot handle more than 4 dimensions')
 
 
-# set working directory
+#%% Read in data
 
+# set working directory
 working_directory = os.path.abspath('/mnt/data/CCPi/Dataset/EM/Cryo_Sample_Data_1/')
 os.chdir(working_directory)
 # remove two angles for the aligned file
 # angles should be in radians
 angles = np.loadtxt('tomo_01.tlt') / 180. * np.pi
 
-# vertical band around a centre slice data to be used during fit
-vertical_band = 50
-# stride between consequent centre slices
-stride = 3*vertical_band // 2
-# reconstructed data discarded (equal to the overlap between vertical bands)
-discard =  stride - vertical_band
-vband = vertical_band
-
-centre_slices = []
-bands = []
-offsets = []
+#read in full data set
 with mrcfile.open('tomo_01.ali') as mrc:
-    #ndarray = mrc.data.copy()
+
     shape = mrc.data.shape
-    print ("MRC data shape", shape)
-    vpanel_v_size = 2*vband+1 if vband != 0 else shape[1]
-    for i,sl in enumerate(range(vband, shape[1], stride)):
-        centre_slices.append(sl)
-        max_band = centre_slices[-1]+vband
-        bands.append([centre_slices[-1]-vband,max_band])
-    # reconstruct on a smaller virtual panel with 5 slices per side
+    vox_size = mrc.voxel_size
     
+    ag_full = AcquisitionGeometry('parallel', '3D', 
+                             pixel_num_h = shape[2],
+                             pixel_num_v = shape[1],
+                             pixel_size_h = np.floor(vox_size['y'] * 100. + 0.5)/100.,
+                             pixel_size_v = np.floor(vox_size['z'] * 100. + 0.5)/100.,
+                             angles = angles[:-2],
+                             angle_unit='radian',
+                             dimension_labels=['angle','vertical','horizontal'],
+                            )
 
-print (centre_slices)
-print (bands)
-print(offsets)
-# # remove two angles for the aligned file
-# # angles should be in radians
-# angles = np.loadtxt('tomo_01.tlt') / 180. * np.pi
+    data_raw = ag_full.allocate(None)
+    data_raw.fill(mrc.data)
 
-
-#for i in range(len(centre_slices)):
-#for i in range(3, len(centre_slices)):
-# j = len(centre_slices)//2
-for i in [len(centre_slices)//5]:
-    centre_slice = centre_slices[i]
-
-
-    with mrcfile.open('tomo_01.ali') as mrc:
-        #ndarray = mrc.data.copy()
-        shape = mrc.data.shape
-        print ("MRC data shape", shape)
-        
-        vox_size = mrc.voxel_size
-        print (vox_size)
-        
-        ag = AcquisitionGeometry('parallel', '3D', 
-                                pixel_num_h = shape[2],
-                                pixel_num_v = vpanel_v_size, 
-                                pixel_size_h = np.floor(np.float32(vox_size['y'])* 100 + 0.5 ) / 100.,
-                                pixel_size_v = np.floor(np.float32(vox_size['z'])* 100 + 0.5 ) / 100.,
-                                angles = angles[:-2],
-                                angle_unit='radian',
-                                dimension_labels=['angle', 'vertical', 'horizontal' ],
-                                )
-        tomo = ag.allocate(None)
-        #tomo.fill(mrc.data[:, centre_slice - vband: centre_slice+vband+1, :])
-        tomo.fill(mrc.data[:, bands[i][0]: bands[i][1]+1, :])
-        # print (mrc.data.shape)
-        
     # "normalise" in min/max range. Could be better to do in 1-99 percentile.
-    tomo.subtract(tomo.min(), out=tomo)
-    tomo.divide(tomo.max()-tomo.min(), out=tomo)
+    data_raw.subtract(data_raw.min(), out=data_raw)
+    data_raw.divide(data_raw.max()-data_raw.min(), out=data_raw)
     # transpose the data to match what Astra projector expects
     # take -log , remove zeros by adding epsilon
     epsilon = 1e-7
-    tomost = -1 * (tomo.subset(dimensions=['vertical','angle','horizontal'])+epsilon).log()
-    del tomo
+    data_full = -1 * (data_raw.subset(dimensions=['vertical','angle','horizontal'])+epsilon).log()
+    ag_full = data_full.geometry
+    min_value = data_full.min()
+    del data_raw
 
-    scale = 1
-    offset = 500. # was 500.
-    vox_size = ag.pixel_size_h * scale
+
+#%% Set up processing
+slices_output = 100
+border_size = 0
+slices_tot = slices_output + 2 * border_size
+number_blocks = int(np.floor (ag_full.pixel_num_h / slices_tot))
+
+#set order to process blocks
+#currently starting from the middle and working out
+block_order = [None] * number_blocks
+block_order[0] = int(np.floor(number_blocks/2))
+
+sign = -1
+for i in range(1,number_blocks):
+	block_order[i] = int(block_order[i-1] + i * sign)
+	sign *= -1
+
+#%% run
+for i in block_order:
+    print("Processing block ", i + 1, " of  ", number_blocks)
+    ind_start = i * slices_output
+    ind_end = ind_start + slices_tot
+        
+    ag = ag_full.copy()
+    ag.pixel_num_v = slices_tot
+
+    data = ag.allocate(None)
+    data.fill(data_full.as_array()[ind_start:ind_end,:,:])
 
     # stretch the reconstruction volume on x to be visible at maximum tilt angle in FOV
+    # extend equally on both sides
     theta_max = np.max(np.abs(ag.angles))
-    num_vox_x = ag.pixel_num_h / np.cos(theta_max)
 
-    # because the reconstruction volume is not a cube try to maintain the same memory footprint
-    # num_vox_y = ag.pixel_num_v
+    border_horizontal = int((ag.pixel_num_h / np.cos(theta_max) - ag.pixel_num_h) //2 + 1)
+    
+    num_vox_x = int(ag.pixel_num_h + 2 * border_horizontal)
+    vox_size = ag.pixel_size_h
 
-    # single slice
-    ig = ImageGeometry(voxel_num_x= int(num_vox_x / scale ),
-                    voxel_num_y= int(500. / scale ),# int(500. / scale), 
-                    voxel_num_z= ag.pixel_num_v, # int(ag.pixel_num_v/scale), #int(ag.pixel_num_v),
-                    voxel_size_x=vox_size,
-                    voxel_size_y=vox_size,
-                    voxel_size_z=vox_size)
+    # reconstruction volume
+    ig = ImageGeometry( voxel_num_x=num_vox_x,
+                        voxel_num_y=500,
+                        voxel_num_z=ag.pixel_num_v,
+                        voxel_size_x=vox_size,
+                        voxel_size_y=vox_size,
+                        voxel_size_z=vox_size)
 
-    print (functools.reduce(lambda x,y: x*y, ig.shape, 1)/1024**3)
-    print (ig)
-
-    # pad acquisition Data
     pad = True
 
     if pad:
-        ag = tomost.geometry
-        print (ag.dimension_labels)
-        ag_pad = AcquisitionGeometry('parallel', '3D', 
-                    pixel_num_h = ig.voxel_num_x, 
-                    pixel_num_v = ag.pixel_num_v, 
-                    pixel_size_h=ag.pixel_size_h, 
-                    pixel_size_v=ag.pixel_size_v, 
-                    channels=1,
-                    angles = ag.angles.copy(), 
-                    dimension_labels=ag.dimension_labels)
+        ag_pad = ag.copy()
+        ag_pad.pixel_num_h = ig.voxel_num_x
 
-        print (ag_pad)
-        data_pad = ag_pad.allocate(tomost.min())
-        diff = ig.voxel_num_x - tomost.geometry.pixel_num_h
-        print ("DIFF",diff, diff/2)
-        m = int(diff/2)
-        M = m + tomost.geometry.pixel_num_h
-        print ("m {} M {}".format(m,M))
-        data_pad.as_array()[:,:,m:M] = tomost.as_array()[:]
+        data_pad = ag_pad.allocate(None)
+        
+        m = border_horizontal
+        M = m + ag.pixel_num_h
+
+        data_pad.as_array()[:,:,m:M] = data.as_array()[:]
         for j in range(M, ig.voxel_num_x ):
-            data_pad.as_array()[:,:,j] = tomost.as_array()[:,:,-1]
+            data_pad.as_array()[:,:,j] = data.as_array()[:,:,-1]
         for j in range(m):
-            data_pad.as_array()[:,:,j] = tomost.as_array()[:,:,0]
+            data_pad.as_array()[:,:,j] = data.as_array()[:,:,0]
 
-        print ("The output image will be {:.3f} Gb".format( functools.reduce(lambda x,y: x*y, ig.shape, 1)/1024**3) )
-        print (ig)
-        # setup the projector
-        A = AstraProjector3DSimple(ig, ag_pad)
-    else:
-        A = AstraProjector3DSimple(ig, ag)
-    L = Gradient(ig)
-    # if scale == 5:
-    #     alpha = 111.
-    # if scale == 1:
-    #     alpha = 50.281313
-    # elif scale == 2:
-    #     alpha = 72
-    if scale == 1:
-        alpha = 50.082964
-    # if False:
-    #   pass
-    else:
-        try:
-            # alpha prop to ratio of norm of A and norm of L
-            print ("calculating norm of A")
-            normA = A.norm(verbose=True)
-            print ("A.norm = ", normA)
-            print ("calculating norm of Gradient")
-            normL = L.norm(verbose=True)
-            print ("L.norm = ", normL)
-            ratio = normA/normL
-            print ("calculating norm ratio", ratio)
-        except MemoryError as me:
-            print (me)
-            raise ValueError('Out of memory')
-        # gamma selects the weighing between the regularisation and the fitting term:
-        # 1 means equal weight
-        # 
-        gamma = 1
-        alpha = gamma * ratio
-        print (alpha, normA, normL, normL/normA, normA/normL)
-
-
-    # setup the Regularised CGLS 
-
-    operator_block = BlockOperator( A, alpha * L)
-
-    zero_data = L.range_geometry().allocate(0)
-
-    if pad:
-        data_block = BlockDataContainer(data_pad, zero_data)
-    else:
-        data_block = BlockDataContainer(tomost, zero_data)
-    
-    try:
-        algo = CGLS(operator=operator_block, data=data_block, 
-                                update_objective_interval = 20, 
-                                max_iteration = 1000)
+        print ("The output image will be {:.3f} Gb".format( functools.reduce(lambda x,y: x*y, ig.shape, 1)/1024**3) )      
         
 
-        def save_callback(iteration, obj, solution):
-            # writer = TIFFWriter()
-            # writer.set_up(data_container=solution, 
-            #             file_name="./Block_CGLS_scale_1_gamma1_wide_it_{}.nxs".format(iteration)
-            # )
-            # writer.write_file()
+    if pad:
+        Aop = AstraProjector3DSimple(ig, ag_pad)
+        #data_block = BlockDataContainer(data_pad, zero_data)
+        f = LeastSquares(A=Aop, b=data_pad)
+        f.L = 58464.15624999999
+    else:
+        Aop = AstraProjector3DSimple(ig, ag)
+        #data_block = BlockDataContainer(data, zero_data)
+        f = LeastSquares(A=Aop, b=data)
+    try:
+        # algo = CGLS(operator=operator_block, data=data_block, 
+        #                         update_objective_interval = 20, 
+        #                         max_iteration = 1000)
 
-            ig = ImageGeometry(voxel_num_x= int(num_vox_x / scale ),
-                    voxel_num_y= int(500. / scale ),# int(500. / scale), 
-                    voxel_num_z= ag.pixel_num_v, # int(ag.pixel_num_v/scale), #int(ag.pixel_num_v),
-                    voxel_size_x=vox_size,
-                    voxel_size_y=vox_size,
-                    voxel_size_z=vox_size)
+        #%% Setup FISTA
+        # r_alpha = 1
+        # r_iterations = 100
+        # r_tolerance = 1e-7          
+        # r_iso = 1
+        # r_nonneg = 0
+        # r_printing = 0
+        # TV = FGP_TV(r_alpha, r_iterations, r_tolerance, r_iso, r_nonneg, r_printing, 'gpu')
 
-            
-            
-            diffx = num_vox_x - ag.pixel_num_h
-            
-            start = int(diffx/2)
-            stop = int(start+ag.pixel_num_h)
-            
-            roi_crop = [(1,ig.voxel_num_z-1), -1, (start,stop)]
-            
-            resizer = Resizer(roi=roi_crop)
-            resizer.set_input(solution)
-            saveme = resizer.get_output()
+        x_init = ig.allocate(0)
+        algo = FISTA(x_init=x_init, f=f, g=ZeroFunction(), update_objective_interval = 20, max_iteration = 1000)
+        #algo = FISTA(x_init=x_init, f=f, g=TV, update_objective_interval = 20, max_iteration = 1000)
+        
+        algo.run(100)
 
-            writer = TIFFWriter()
-            writer.set_up(data_container=saveme, 
-                        file_name="data_pad_overlap32/intel_ResizedRegularisedCGLS_Gradient_it_{:03d}.tiff".format(iteration),
-                        counter_offset=i * saveme.geometry.voxel_num_z )
-            writer.write()
+        roi = [(border_size,ig.voxel_num_z-border_size), -1, (border_horizontal,ig.voxel_num_x-border_horizontal)]       
+        resizer = Resizer(roi=roi)
+        resizer.set_input(algo.get_output())
+        data_reconstructed = resizer.get_output()
+
+        writer = TIFFWriter()
+        writer.set_up(data_container=data_reconstructed, 
+                    file_name="out2/test_reco.tiff",
+                    counter_offset=ind_start + border_size )
+        writer.write()
+
+        # def save_callback(iteration, obj, solution):
+        #     # writer = TIFFWriter()
+        #     # writer.set_up(data_container=solution, 
+        #     #             file_name="./Block_CGLS_scale_1_gamma1_wide_it_{}.nxs".format(iteration)
+        #     # )
+        #     # writer.write_file()
+
+        #     ig = ImageGeometry(voxel_num_x= int(num_vox_x / scale ),
+        #             voxel_num_y= int(500. / scale ),# int(500. / scale), 
+        #             voxel_num_z= ag.pixel_num_v, # int(ag.pixel_num_v/scale), #int(ag.pixel_num_v),
+        #             voxel_size_x=vox_size,
+        #             voxel_size_y=vox_size,
+        #             voxel_size_z=vox_size)           
+            
+        #     diffx = num_vox_x - ag.pixel_num_h
+            
+        #     start = int(diffx/2)
+        #     stop = int(start+ag.pixel_num_h)
+            
+        #     roi_crop = [(1,ig.voxel_num_z-1), -1, (start,stop)]
+            
+        #     resizer = Resizer(roi=roi_crop)
+        #     resizer.set_input(solution)
+        #     saveme = resizer.get_output()
+
+        #     writer = TIFFWriter()
+        #     writer.set_up(data_container=saveme, 
+        #                 file_name="data_pad_overlap32/intel_ResizedRegularisedCGLS_Gradient_it_{:03d}.tiff".format(iteration),
+        #                 counter_offset=i * saveme.geometry.voxel_num_z )
+        #     writer.write()
 
 
-        algo.run(80, verbose=True, callback=save_callback)
+        # algo.run(20, verbose=True, callback=save_callback)
+
     except MemoryError as me:
         print (me)
+
+
+# %%
