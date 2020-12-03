@@ -18,33 +18,69 @@ import os
 
 #%% Read in data
 # path = "/media/scratch/Data/SophiaBeads/SophiaBeads_512_averaged/SophiaBeads_512_averaged.xtekct"
-path = "/mnt/data/CCPi/Dataset/SophiaBeads_64_averaged/CentreSlice"
 
-# Create a 2D fan beam Geometry
+sparse_beads = False
+if sparse_beads:
+    path = "/mnt/data/CCPi/Dataset/SparseBeads/SparseBeads_ML_L3/CentreSlice"
 
-source_position=(0, -80.6392412185669)
-detector_position=(0, 1007.006 - source_position[1])
-angles = np.asarray([- 5.71428571428571 * i for i in range(63)], dtype=np.float32)
-panel = 2000
-panel_pixel_size = 0.2
+    # Create a 2D fan beam Geometry
 
-ag_cs =  AcquisitionGeometry.create_Cone2D(source_position, detector_position)\
-                            .set_angles(angles, angle_unit='degree')\
-                            .set_panel(panel, pixel_size=panel_pixel_size, origin='top-right')
+    source_position=(0, -121.9320936203)
+    detector_position=(0, 1400.206 - source_position[1])
+    num_projections = 2520
+    angles = np.asarray([- 0.142857142857143 * i for i in range(num_projections)], dtype=np.float32)
+    panel = 2000
+    panel_pixel_size = 0.2
 
-#%%
-reader = TIFFStackReader()
-reader.set_up(file_name=os.path.join(path, 'Sinograms', 'SophiaBeads_64_averaged_0001.tif'))
-data = reader.read_as_AcquisitionData(ag_cs)
+    ag_cs =  AcquisitionGeometry.create_Cone2D(source_position, detector_position)\
+                                .set_angles(angles, angle_unit='degree')\
+                                .set_panel(panel, pixel_size=panel_pixel_size, origin='top-right')
 
-white_level = 60000.0
+    #%%
+    reader = TIFFStackReader()
+    reader.set_up(file_name=os.path.join(path, 'Sinograms', 'SparseBeads_ML_L3_0001.tif'))
+    data = reader.read_as_AcquisitionData(ag_cs)
 
-data_raw = data.subset(dimensions=['angle','horizontal'])
-data_raw = data / white_level
+    white_level = 60000.0
 
-# negative log
-ldata = data_raw.log()
-ldata *= -1
+    data_raw = data.subset(dimensions=['angle','horizontal'])
+    data_raw = data / white_level
+
+    # negative log
+    ldata = data_raw.log()
+    ldata *= -1
+
+    shift_mm = 12 * 0.2 / detector_position[1]
+else:
+    path = "/mnt/data/CCPi/Dataset/SophiaBeads_64_averaged/CentreSlice"
+
+    # Create a 2D fan beam Geometry
+
+    source_position=(0, -80.6392412185669)
+    detector_position=(0, 1007.006 - source_position[1])
+    angles = np.asarray([- 5.71428571428571 * i for i in range(63)], dtype=np.float32)
+    panel = 2000
+    panel_pixel_size = 0.2
+
+    ag_cs =  AcquisitionGeometry.create_Cone2D(source_position, detector_position)\
+                                .set_angles(angles, angle_unit='degree')\
+                                .set_panel(panel, pixel_size=panel_pixel_size, origin='top-right')
+
+    #%%
+    reader = TIFFStackReader()
+    reader.set_up(file_name=os.path.join(path, 'Sinograms', 'SophiaBeads_64_averaged_0001.tif'))
+    data = reader.read_as_AcquisitionData(ag_cs)
+
+    white_level = 60000.0
+
+    data_raw = data.subset(dimensions=['angle','horizontal'])
+    data_raw = data / white_level
+
+    # negative log
+    ldata = data_raw.log()
+    ldata *= -1
+
+    shift_mm = 0.0024
 
 
 
@@ -76,7 +112,7 @@ data_cs = ldata
 # FBP_3D_out = fbp.get_output()  
 # plotter2D(FBP_3D_out.subset(vertical=999))
 #%%
-shift = 0.0024 / ig_cs.voxel_size_x
+shift = shift_mm / ig_cs.voxel_size_x
 ag_shift = ag_cs.copy()
 ag_shift.config.system.rotation_axis.position= [shift,0.]
 
@@ -97,15 +133,18 @@ from cil.plugins.ccpi_regularisation.functions import FGP_TV
 
 K = A(ig_cs, ag_shift)
 f = LeastSquares(K, ldata, c=0.5)
-f.L = 24.4184
+if sparse_beads:
+    f.L = 1071.1967
+else:
+    f.L = 24.4184
 alpha = 0.003
 g = alpha * TotalVariation(lower=0.)
 g = FGP_TV(alpha, 100, 1e-5, 1, 1, 0 , 'gpu')
 
-algo = FISTA(initial=K.domain.allocate(0), f=f, g=g, max_iteration=10000, update_objective_interval=100)
+algo = FISTA(initial=K.domain.allocate(0), f=f, g=g, max_iteration=10000, update_objective_interval=2)
 #%%
-
-algo.run(1000, verbose=1)
+algo.update_objective_interval=2
+algo.run(10, verbose=1)
 
 plotter2D(algo.solution, cmap='gist_earth')
 
@@ -235,17 +274,24 @@ for i , el in enumerate (subsets):
     funcs.append(0.5*L2NormSquared(b=bldata[-1]))
 
 operators.append(nabla)
-funcs.append((alpha) * MixedL21Norm())
+funcs.append((alpha/100) * MixedL21Norm())
 
 SBK = BlockOperator(*operators)
 BF  = BlockFunction(*funcs)
 ZF  = ZeroFunction()
 
-spdhg = SPDHG(f=BF, g=ZF, operator=SBK, max_iteration=pdhg.max_iteration*64,
+# normK = SBK.norm()
+normK = 202.842
+print (normK)
+tau = np.asarray([1/normK for _ in range(len(SBK))])
+sigma = np.asarray([1/normK for _ in range(len(SBK))])
+
+spdhg = SPDHG(f=BF, g=ZF, operator=SBK,
+    gamma=2., max_iteration=pdhg.max_iteration*64,
     update_objective_interval=100)
 
 #%% 
-spdhg.run(2000, verbose=2)
+spdhg.run(200, verbose=2, print_interval=100)
 
 
 # %%
