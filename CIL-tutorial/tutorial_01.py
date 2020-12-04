@@ -137,7 +137,8 @@ if sparse_beads:
     f.L = 1071.1967
 else:
     f.L = 24.4184
-alpha = 0.003
+alpha_rgl = 0.003
+alpha = alpha_rgl * ig_cs.voxel_size_x
 g = alpha * TotalVariation(lower=0.)
 g = FGP_TV(alpha, 100, 1e-5, 1, 1, 0 , 'gpu')
 
@@ -162,7 +163,7 @@ normK = BK.norm()
 pdhg = PDHG(f=F, g=IndicatorBox(lower=0.), operator=BK, max_iteration=1000,
 update_objective_interval=100)
 #%%
-pdhg.run(1000, verbose=2)
+# pdhg.run(1000, verbose=2)
 #%%
 plotter2D(pdhg.solution, cmap='gist_earth')
 
@@ -258,6 +259,9 @@ print (subsets[0])
 #%%
 from cil.optimisation.algorithms import SPDHG
 from cil.optimisation.functions import ZeroFunction
+from cil.optimisation.functions import MixedL21Norm, BlockFunction, L2NormSquared, IndicatorBox
+from cil.optimisation.operators import GradientOperator, BlockOperator
+
 
 # fractionate the data
 bldata = []
@@ -265,7 +269,7 @@ operators = []
 funcs = []
 for i , el in enumerate (subsets):
     tmpa = ldata.geometry.angles[el]
-    geom = ldata.geometry.copy()
+    geom = ag_shift.copy()
     geom.set_angles(tmpa, angle_unit=ldata.geometry.config.angles.angle_unit)
     tmp = geom.allocate(None)
     tmp.fill(ldata.as_array()[el])
@@ -274,11 +278,11 @@ for i , el in enumerate (subsets):
     funcs.append(0.5*L2NormSquared(b=bldata[-1]))
 
 operators.append(nabla)
-funcs.append((alpha/100) * MixedL21Norm())
+funcs.append((alpha) * MixedL21Norm())
 
 SBK = BlockOperator(*operators)
 BF  = BlockFunction(*funcs)
-ZF  = ZeroFunction()
+ZF  = IndicatorBox(lower=0)
 
 # normK = SBK.norm()
 normK = 202.842
@@ -287,11 +291,12 @@ tau = np.asarray([1/normK for _ in range(len(SBK))])
 sigma = np.asarray([1/normK for _ in range(len(SBK))])
 
 spdhg = SPDHG(f=BF, g=ZF, operator=SBK,
-    gamma=2., max_iteration=pdhg.max_iteration*64,
-    update_objective_interval=100)
+    gamma=.5, max_iteration=pdhg.max_iteration*64,
+    update_objective_interval=1000)
 
 #%% 
-spdhg.run(200, verbose=2, print_interval=100)
+spdhg.update_objective_interval = 100
+spdhg.run(10000,verbose=2)
 
 
 # %%
