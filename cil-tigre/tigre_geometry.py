@@ -34,7 +34,8 @@ class TIGREConeGeometry(Geometry):
         # size of each pixel            (mm)
         self.dDetector = np.array(ag.config.panel.pixel_size[::-1])
         self.sDetector = self.dDetector * self.nDetector    # total size of the detector    (mm)
-                                                            # Image parameters
+        
+        # Image parameters
         self.nVoxel = np.array( [1, ig.voxel_num_y, ig.voxel_num_x] )                   # number of voxels              (vx)
         self.dVoxel = np.array( [ig.voxel_size_x, ig.voxel_size_y, ig.voxel_size_x]  )                # size of each voxel            (mm)
         self.sVoxel = self.nVoxel * self.dVoxel             # total size of the image       (mm)
@@ -51,7 +52,9 @@ class TIGREConeGeometry(Geometry):
 
 # def Ax(img, geo, angles,  krylov="ray-voxel"):
 class TIGREProjectionOperator(LinearOperator):
-    def __init__(self, domain_geometry, range_geometry, method={'direct':'ray-voxel','adjoint': 'matched'}):
+
+    def __init__(self, domain_geometry, range_geometry, direct_method='interpolated',adjoint_method='matched'):
+    
         super(TIGREProjectionOperator,self).__init__(domain_geometry=domain_geometry,\
              range_geometry=range_geometry)
         self.tigre_geom = CIL2TIGREGeometry.getTIGREGeometry(domain_geometry,range_geometry)
@@ -63,17 +66,16 @@ class TIGREProjectionOperator(LinearOperator):
         if range_geometry.config.angles.angle_unit == AcquisitionGeometry.DEGREE:
             self.angles *= (np.pi/180.) 
         
-        self.method = method
+        self.method = {'direct':direct_method,'adjoint':adjoint_method}
     
     def direct(self, x, out=None):
         if out is None:
             out = self.range.allocate(None)
         
-        print (x.shape, self.tigre_geom.nVoxel)
         data_temp = np.expand_dims(x.as_array(),axis=0)
-        print (data_temp.shape)
+        print("direct expand ", data_temp.shape)
         arr_out = Ax.Ax(data_temp, self.tigre_geom, self.angles , krylov=self.method['direct'])
-        print (arr_out.shape)
+        print("projected", arr_out.shape)
         arr_out = np.squeeze(arr_out, axis=1)
         out.fill ( arr_out )
         return out
@@ -81,7 +83,11 @@ class TIGREProjectionOperator(LinearOperator):
         if out is None:
             out = self.domain.allocate(None)
         data_temp = np.expand_dims(x.as_array(),axis=1)
+        print("adjoint expand ", data_temp.shape)
+        
         arr_out = Atb.Atb(data_temp, self.tigre_geom, self.angles , krylov=self.method['adjoint'])
+        print("bck_projected", arr_out.shape)
+        
         arr_out = np.squeeze(arr_out, axis=0)
         out.fill ( arr_out )
         return out
@@ -117,12 +123,12 @@ if __name__ == '__main__':
 
     source_position=(0, -80.6392412185669)
     detector_position=(0, 1007.006 - source_position[1])
-    angles = np.asarray([- 5.71428571428571 * i for i in range(63)], dtype=np.float32)
+    angles = np.asarray([- 5.71428571428571 * i for i in range(63)], dtype=np.float32) * np.pi / 180.
     panel = 2000
     panel_pixel_size = 0.2
 
     ag_cs =  AcquisitionGeometry.create_Cone2D(source_position, detector_position)\
-                                .set_angles(angles, angle_unit='degree')\
+                                .set_angles(angles, angle_unit='radian')\
                                 .set_panel(panel, pixel_size=panel_pixel_size, origin='top-right')
 
     #%%
@@ -163,16 +169,22 @@ if __name__ == '__main__':
 
     # Try back/forward projection
     print ("Create TIGRE Projection Operator")
-    A = TIGREProjectionOperator(domain_geometry=ig_cs, range_geometry=ag_cs, method={'direct':'ray-voxel', 'adjoint':'FDK'})
+    A = TIGREProjectionOperator(domain_geometry=ig_cs, range_geometry=ag_cs, \
+         direct_method='interpolated', adjoint_method='matched')
     print ("adjoint")
     bck = A.adjoint(ldata)
     rec = A.fdk(ldata)
-    # plotter2D(bck, cmap='gist_earth')
+    # plotter2D([bck, rec], cmap='gist_earth')
 
     print ("direct")
-    fwd = A.direct(bck)
-    if fwd.mean() > 0:
-        plotter2D([bck, fwd], cmap='gist_earth', stretch_y=True)
+    fwd = ldata * 0. + 1
+    A.direct(bck*0+1, out=fwd)
+
+    print (fwd.shape, ldata.shape, bck.shape)
+    # fwd = A.direct(bck*0+1)
+    # if fwd.mean() > 0:
+    #     plotter2D([ldata, fwd], cmap='gist_earth', stretch_y=True)
+    plotter2D([bck, fwd], cmap='gist_earth', stretch_y=True)
     sys.exit(0)
 #%% Centre slice FDK
     
