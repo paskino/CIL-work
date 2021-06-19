@@ -6,7 +6,7 @@ from ccpi.viewer import viewer2D, viewer3D
 from ccpi.viewer.QCILViewerWidget import QCILViewerWidget
 
 # Import linking class to join 2D and 3D viewers
-# import ccpi.viewer.viewerLinker as vlink
+import ccpi.viewer.viewerLinker as vlink
 
 from PySide2 import QtCore, QtWidgets
 from PySide2.QtGui import QRegExpValidator
@@ -34,14 +34,24 @@ class SingleViewerCenterWidget(QtWidgets.QMainWindow):
 
         self.SetUpMenus()
 
-        self.frame = QCILViewerWidget(viewer=viewer2D, shape=(600,600))
-                        
-        self.setCentralWidget(self.frame)
+        self.frame = QCILViewerWidget(viewer=viewer2D, 
+                                      shape=(600,600),
+                                      interactorStyle=vlink.Linked2DInteractorStyle)
+        self.frame1 = QCILViewerWidget(viewer=viewer3D, 
+                                       shape=(600,600),
+                                       interactorStyle=vlink.Linked3DInteractorStyle)
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.addWidget(self.frame)
+        layout.addWidget(self.frame1)
+        widget = QtWidgets.QWidget(self)
+        widget.setLayout(layout)
+        # self.setCentralWidget(self.frame)
+        self.setCentralWidget(widget)
     
         self.show()
     @property
     def tempdir(self):
-        if self._tmpdir is None:
+        if self._tmpdir is None: 
             self._tmpdir = tempfile.TemporaryDirectory()
             print ("created", self._tmpdir.name)
         return self._tmpdir
@@ -172,6 +182,7 @@ class SingleViewerCenterWidget(QtWidgets.QMainWindow):
             reader.Update()
             
             self.frame.viewer.setInputData(reader.GetOutput())
+            self.frame1.viewer.setInputData(reader.GetOutput())
         else:
             print("WTF")
 # class TwoLinkedViewersCenterWidget(QtWidgets.QMainWindow):
