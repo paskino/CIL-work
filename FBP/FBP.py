@@ -6,6 +6,8 @@ from scipy.fft import fft, ifft, fftshift, fftfreq, ifftshift
 import numpy as np
 from cil.utilities.display import show2D
 from cil.utilities import dataexample
+from PIL import Image
+    
 
 def spread_detector_line(i, data, out):
     line = data.as_array()[i]
@@ -96,6 +98,7 @@ data = reader.read()
 
 
 def BP(data, ig):
+    '''Backward projection for 2D parallel beam'''
     spread = ig.allocate(0)
     spreadarr = spread.as_array()
     recon = ig.allocate(0)
@@ -106,10 +109,30 @@ def BP(data, ig):
         reconarr += rotate(spreadarr, angle , reshape=False)
     recon.fill(reconarr)
     return recon
+
+def FP(image, ag):
+    '''Forward projection for 2D parallel beam'''
+    acq = ag.allocate(0)
+    
+    for i,angle in enumerate(data.geometry.angles):
+        # TODO: check why it is -angle
+        fp = rotate(image.as_array(), -angle , reshape=False)
+        # TODO: axis, why 0?
+        acq.fill(np.sum(fp, axis=0), angle=i)
+    return acq
+
 def spread_and_filter_detector_line(i, data, filt, out):
     line = data.as_array()[i]
     for i in range(out.shape[1]):
         out[i] = line * filt
+
+def rotate_image(spreadarr, angle , centre):
+    im = Image.fromarray(spreadarr)
+
+    pivot = [img//2 + el for img, el in zip(spreadarr.shape, centre)]
+    rotated = im.rotate(angle, center=pivot, fillcolor=0)
+    return rotated
+
 
 def FBP(data, ig):
     '''Filter-Back-Projection'''
@@ -132,14 +155,20 @@ def FBP(data, ig):
         # backproject
         for j in range(recon.shape[1]):
             spreadarr[j] = bck.real
+        # should use https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.rotate
         reconarr += rotate(spreadarr, angle , reshape=False)
         
     recon.fill(reconarr)
     return recon
 
-# recon = BP(data, ig)
-# recon2 = FBP(data, ig)
-# show2D([phantom, data, recon, recon2])
+recon = BP(data, ig)
+recon2 = FBP(data, ig)
+fwd = FP(phantom, data.geometry)
+show2D([phantom, recon, recon2, \
+        data, fwd, fwd - data], \
+    title=['phantom', 'Back-Projection', 'FBP', \
+           'ASTRA FWD', 'FP FWD', 'DIFF (FP - ASTRA)_FWD'],\
+        cmap='gist_earth', num_cols=3)
 
 dls = dataexample.SYNCHROTRON_PARALLEL_BEAM_DATA.get()
 dls2d = dls.get_slice(vertical=70)
