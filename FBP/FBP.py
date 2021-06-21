@@ -14,40 +14,6 @@ def spread_detector_line(i, data, out):
     for i in range(out.shape[1]):
         out[i] = line
 
-def spread_and_filter_detector_line(i, data, filt, out):
-    line = data.as_array()[i]
-    for i in range(out.shape[1]):
-        out[i] = line * filt
-
-def ramp_filter(size):
-    ramp = np.zeros((size))
-    middle = size // 2
-    
-    if size % 2 != 0:
-        middle = size // 2 + 1
-     
-    half_ramp = np.linspace(0,1,middle, True)
-    ramp[middle:] = half_ramp
-    ramp[:middle] = half_ramp[::-1]
-    return ramp
-
-def fourier_filter_data(data):
-    from scipy.fft import fft, ifft
-    out = data.copy()
-    
-    for i,angle in enumerate(data.geometry.angles):
-        line = data.as_array()[i]
-        
-        ramp = np.asarray(ramp_filter(line.size), dtype=np.complex)
-        ramp = fftshift(ramp)
-#         ramp.imag = ramp.real
-
-        lf = fftshift(fft(line))
-#         plt.plot(lf.real)
-        lf *= ramp
-        lf = ifft(lf)
-        out.fill(lf, angle=i)
-    return out
 
 
 N = 255
@@ -121,11 +87,6 @@ def FP(image, ag):
         acq.fill(np.sum(fp, axis=0), angle=i)
     return acq
 
-def spread_and_filter_detector_line(i, data, filt, out):
-    line = data.as_array()[i]
-    for i in range(out.shape[1]):
-        out[i] = line * filt
-
 def rotate_image(spreadarr, angle , centre):
     im = Image.fromarray(spreadarr)
 
@@ -135,7 +96,10 @@ def rotate_image(spreadarr, angle , centre):
 
 
 def FBP(data, ig):
-    '''Filter-Back-Projection'''
+    '''Filter-Back-Projection
+    
+    for a nice description https://www.coursera.org/lecture/cinemaxe/filtered-back-projection-part-2-gJSJh
+    '''
     spread = ig.allocate(0)
     spreadarr = spread.as_array()
     recon = ig.allocate(0)
@@ -161,29 +125,42 @@ def FBP(data, ig):
     recon.fill(reconarr)
     return recon
 
-recon = BP(data, ig)
-recon2 = FBP(data, ig)
-fwd = FP(phantom, data.geometry)
-show2D([phantom, recon, recon2, \
-        data, fwd, fwd - data], \
-    title=['phantom', 'Back-Projection', 'FBP', \
-           'ASTRA FWD', 'FP FWD', 'DIFF (FP - ASTRA)_FWD'],\
-        cmap='gist_earth', num_cols=3)
+# recon = BP(data, ig)
+# recon2 = FBP(data, ig)
+# fwd = FP(phantom, data.geometry)
+# show2D([phantom, recon, recon2, \
+#         data, fwd, fwd - data], \
+#     title=['phantom', 'Back-Projection', 'FBP', \
+#            'ASTRA FWD', 'FP FWD', 'DIFF (FP - ASTRA)_FWD'],\
+#         cmap='gist_earth', num_cols=3)
+
+from cil.utilities.display import show_geometry
+show_geometry(data.geometry)
 
 dls = dataexample.SYNCHROTRON_PARALLEL_BEAM_DATA.get()
-dls2d = dls.get_slice(vertical=70)
+print ("##################################### DLS", dls.geometry)
+data = dls.log()
+data *= -1
+# dls2d = dls.get_slice(vertical=70)
+# show2D(dls.get_slice(vertical='centre'))
 
 from cil.processors import Slicer, CentreOfRotationCorrector
-data = CentreOfRotationCorrector.xcorr(slice_index='centre')(dls)
-print (data.geometry)
+data = CentreOfRotationCorrector.xcorr(slice_index='centre', projection_index=0, ang_tol=0.1)(data)
+print ("##################################### Centred", data.geometry)
 dls2d = data.get_slice(vertical=70)
+print ("##################################### Centred", dls2d.geometry)
 # get centre of rotation
-    # cor = data.geometry.config.system.rotation_axis.position
-    # px = data.geometry.config.panel.pixel_size[0]
-    # cor = [cor[0] * px , cor[1] * px]
-    
+cor = data.geometry.config.system.rotation_axis.position
+px = data.geometry.config.panel.pixel_size[0]
+cor = [cor[0] * px , cor[1] * px]
+if cor[0] <= 0:
+    pad = (0, 2* int(cor[0]))
+else:
+    pad = (2* int(cor[0]), -1)
+print ("CENTRE of ROT", cor)
 from cil.processors import Slicer
-dls2d = Slicer(roi={'horizontal': (14,-1)})(dls2d)
+dls2d = Slicer(roi={'horizontal': pad })(data.get_slice(vertical=70))
+dls2d.geometry = dls.get_slice(vertical=70).geometry.copy()
 
 # dls2d.geometry.config.system.rotation_axis.position = data.geometry.config.system.rotation_axis.position[:-1]
 dls_ig = dls2d.geometry.get_ImageGeometry()
