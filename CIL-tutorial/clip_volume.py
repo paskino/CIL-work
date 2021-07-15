@@ -1,7 +1,7 @@
 import functools
 from cil.io import NEXUSDataReader
 writer = NEXUSDataReader()
-writer.set_up(file_name='noce.nxs')
+writer.set_up(file_name='ovino.nxs')
 recon = writer.read()
 print (recon)
 
@@ -23,14 +23,13 @@ def update_clipping_plane(viewer, planew, interactor, event):
         rep = planew.GetRepresentation()
         plane = vtk.vtkPlane()
         rep.GetPlane(plane)
-        print (plane)
+        # print (plane)
     
         v.volume.GetMapper().RemoveAllClippingPlanes()
         v.volume.GetMapper().AddClippingPlane(plane)
-        #if pevent == vtk.vtkWidgetEvent.Move:
         v.volume.Modified()
-    # v.getRenderer().Render()
-    # v.updateVolumePipeline()
+        v.getRenderer().Render()
+    
 
 
 def clipping_plane(v, interactor, event):
@@ -38,6 +37,8 @@ def clipping_plane(v, interactor, event):
         if hasattr(v, 'planew'):
             is_enabled = v.planew.GetEnabled()
             v.planew.SetEnabled(not is_enabled)
+            print ("should set to not", is_enabled)
+            v.getRenderer().Render()
         else:
             print ("handling c")
             planew = vtk.vtkImplicitPlaneWidget2()
@@ -57,10 +58,10 @@ def clipping_plane(v, interactor, event):
             planew.On()
             v.plane = plane
             v.planew = planew
-            v.style.AddObserver('LeftButtonReleaseEvent', functools.partial(update_clipping_plane, v, planew), 1.0)
+            v.style.AddObserver('LeftButtonReleaseEvent', functools.partial(update_clipping_plane, v, planew), 0.5)
 
 
-v.style.AddObserver('KeyPressEvent', partial(clipping_plane, v), 1.0)
+v.style.AddObserver('KeyPressEvent', partial(clipping_plane, v), 0.5)
 
 v.setInputData(Converter.numpy2vtkImage(recon.as_array()))
 v.volume_colormap = 'inferno'
