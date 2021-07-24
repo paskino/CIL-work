@@ -167,7 +167,7 @@ if __name__== '__main__':
     #     tau = 1 / (gamma * normK)
     #     algo.sigma = sigma
     #     algo.tau = tau
-    run_adaptive_pdhg(algo, 20, 50)
+    run_adaptive_pdhg(algo, 20, 250)
     algos['explicit adaptive'] = algo
 #%%
     # explicit diagonal preconditioning
@@ -223,20 +223,20 @@ if __name__== '__main__':
     #     tau = 1 / (gamma * normK)
     #     algo.sigma = sigma
     #     algo.tau = tau
-    run_adaptive_pdhg(algo, 20, 50)
+    run_adaptive_pdhg(algo, 20, 250)
     algos['implicit adaptive'] = algo
 #%%
 
-    # implicit diagonal preconditioning
-    S = A.range.allocate(1) / (A.direct(A.domain.allocate(1)))
-    T = A.domain.allocate(1) / (A.adjoint(A.range.allocate(1)))
+    # # implicit diagonal preconditioning
+    # S = A.range.allocate(1) / (A.direct(A.domain.allocate(1)))
+    # T = A.domain.allocate(1) / (A.adjoint(A.range.allocate(1)))
 
-    algo = PDHG(f = f2, g = TV, operator = A, sigma=S, tau=T)
+    # algo = PDHG(f = f2, g = TV, operator = A, sigma=S, tau=T)
 
-    algo.max_iteration = 5000
-    algo.update_objective_interval = 20
-    algo.run(verbose=2)
-    algos['implicit diagonal preconditioning'] = algo
+    # algo.max_iteration = 5000
+    # algo.update_objective_interval = 20
+    # algo.run(verbose=2)
+    # algos['implicit diagonal preconditioning'] = algo
 
  
 # %%
