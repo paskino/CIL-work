@@ -1,4 +1,5 @@
-from scipy.ndimage import rotate
+#%%
+from scipy.ndimage import rotate as sprotate
 from cil.framework import ImageGeometry
 from cil.framework import AcquisitionGeometry
 import matplotlib.pyplot as plt
@@ -11,6 +12,9 @@ from PIL import Image
 
 def spread_detector_line(i, data, out):
     line = data.as_array()[i]
+    # if out[:,0,:].shape != line.shape:
+    #     width = 
+    #     line = np.pad(line, width, mode='constant', constant_values=0)
     for i in range(out.shape[1]):
         out[i] = line
 
@@ -53,14 +57,29 @@ phantomarr = 1 - np.logical_and(np.logical_and(mask1, mask2),mask3)
 print (phantomarr.shape)
 
 phantom = ImageData(phantomarr, deep_copy=False, geometry=ig, suppress_warning=True)
-# show2D(phantom)
+show2D(phantom)
 
 #%%
 from cil.io import NEXUSDataReader
 
 reader = NEXUSDataReader()
 reader.set_up(file_name='phantom.nxs')
-data = reader.read()
+# data = reader.read()
+#%%
+
+def rotate(ndarray, angle, centre=None, reshape=False, backend='scipy'):
+    if backend == 'scipy':
+        return sprotate(ndarray, angle, reshape=reshape)
+    elif backend == 'pillow':
+        im = Image.fromarray(ndarray)
+        if centre is not None:
+            pivot = [img//2 + el for img, el in zip(ndarray.shape, centre)]
+        else:
+            pivot = centre
+        rot = np.asarray(
+            im.rotate(angle, center=pivot, translate=None, fillcolor=0)
+        )
+        return rot
 
 
 def BP(data, ig):
@@ -69,23 +88,56 @@ def BP(data, ig):
     spreadarr = spread.as_array()
     recon = ig.allocate(0)
     reconarr = recon.as_array()
-    
+    cor = data.geometry.config.system.rotation_axis.position
+    try:
+        np.testing.assert_array_equal(cor, np.zeros((3,), dtype=np.float32))
+        centre = cor
+        backend='pillow'
+    except AssertionError:
+        centre = None
+        backend='pillow'
+    print (centre, cor, backend)
     for i,angle in enumerate(data.geometry.angles):
         spread_detector_line(i, data, spreadarr)
-        reconarr += rotate(spreadarr, angle , reshape=False)
+        reconarr += rotate(spreadarr, angle, centre=centre, reshape=False, backend=backend)
     recon.fill(reconarr)
     return recon
 
 def FP(image, ag):
     '''Forward projection for 2D parallel beam'''
     acq = ag.allocate(0)
-    
+    cor = data.geometry.config.system.rotation_axis.position
+    try:
+        np.testing.assert_array_equal(cor, np.zeros((3,), dtype=np.float32))
+        centre = cor
+        backend='pillow'
+    except AssertionError:
+        centre = None
+        backend='pillow'
     for i,angle in enumerate(data.geometry.angles):
         # TODO: check why it is -angle
-        fp = rotate(image.as_array(), -angle , reshape=False)
+        fp = rotate(image.as_array(), -angle, centre=centre, reshape=False, backend=backend)
         # TODO: axis, why 0?
         acq.fill(np.sum(fp, axis=0), angle=i)
     return acq
+
+
+dls = dataexample.SYNCHROTRON_PARALLEL_BEAM_DATA.get()
+print ("##################################### DLS", dls.geometry)
+data = dls.log()
+data *= -1
+data = data.get_slice(vertical='centre')
+ig = data.geometry.get_ImageGeometry()
+recon = BP(data, ig)
+show2D(recon, title=['Back Projection'])
+# fwd = FP(phantom, data.geometry)
+# show2D([phantom, recon, recon2, \
+#         data, fwd, fwd - data], \
+#     title=['phantom', 'Back-Projection', 'FBP', \
+#            'ASTRA FWD', 'FP FWD', 'DIFF (FP - ASTRA)_FWD'],\
+#         cmap='gist_earth', num_cols=3)
+
+# %%
 
 def rotate_image(spreadarr, angle , centre):
     im = Image.fromarray(spreadarr)
@@ -95,7 +147,7 @@ def rotate_image(spreadarr, angle , centre):
     return rotated
 
 
-def FBP(data, ig):
+def FBP(data, ig, backend='scipy'):
     '''Filter-Back-Projection
     
     for a nice description https://www.coursera.org/lecture/cinemaxe/filtered-back-projection-part-2-gJSJh
@@ -105,6 +157,15 @@ def FBP(data, ig):
     recon = ig.allocate(0)
     reconarr = recon.as_array()
     
+    cor = data.geometry.config.system.rotation_axis.position
+    print (cor)
+    try:
+        np.testing.assert_array_equal(cor, np.zeros((3,), dtype=np.float32))
+        centre = cor
+    except AssertionError:
+        centre = None
+    
+
     l = spread.get_dimension_size('horizontal_x')
     # create |omega| filter
     freq = fftfreq(l)
@@ -120,35 +181,31 @@ def FBP(data, ig):
         for j in range(recon.shape[1]):
             spreadarr[j] = bck.real
         # should use https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.rotate
-        reconarr += rotate(spreadarr, angle , reshape=False)
+        
+        reconarr += rotate(spreadarr, angle, centre=centre, reshape=False, backend=backend)
         
     recon.fill(reconarr)
     return recon
 
-# recon = BP(data, ig)
-# recon2 = FBP(data, ig)
-# fwd = FP(phantom, data.geometry)
-# show2D([phantom, recon, recon2, \
-#         data, fwd, fwd - data], \
-#     title=['phantom', 'Back-Projection', 'FBP', \
-#            'ASTRA FWD', 'FP FWD', 'DIFF (FP - ASTRA)_FWD'],\
-#         cmap='gist_earth', num_cols=3)
+#%%
+
 
 from cil.utilities.display import show_geometry
-show_geometry(data.geometry)
+
 
 dls = dataexample.SYNCHROTRON_PARALLEL_BEAM_DATA.get()
 print ("##################################### DLS", dls.geometry)
 data = dls.log()
 data *= -1
+show_geometry(data.geometry)
 # dls2d = dls.get_slice(vertical=70)
 # show2D(dls.get_slice(vertical='centre'))
-
+#%%
 from cil.processors import Slicer, CentreOfRotationCorrector
 data = CentreOfRotationCorrector.xcorr(slice_index='centre', projection_index=0, ang_tol=0.1)(data)
 print ("##################################### Centred", data.geometry)
-dls2d = data.get_slice(vertical=70)
-print ("##################################### Centred", dls2d.geometry)
+# dls2d = data.get_slice(vertical=70)
+# print ("##################################### Centred", dls2d.geometry)
 # get centre of rotation
 cor = data.geometry.config.system.rotation_axis.position
 px = data.geometry.config.panel.pixel_size[0]
@@ -157,16 +214,25 @@ if cor[0] <= 0:
     pad = (0, 2* int(cor[0]))
 else:
     pad = (2* int(cor[0]), -1)
-print ("CENTRE of ROT", cor)
+print ("CENTRE of ROT", cor, pad)
+
 from cil.processors import Slicer
-dls2d = Slicer(roi={'horizontal': pad })(data.get_slice(vertical=70))
-dls2d.geometry = dls.get_slice(vertical=70).geometry.copy()
+dls2d = Slicer(roi={'horizontal': pad })(dls.get_slice(vertical=70))
+data = dls2d.log()
+data *= -1
+# dls2d.geometry = dls.get_slice(vertical=70).geometry.copy()
 
-# dls2d.geometry.config.system.rotation_axis.position = data.geometry.config.system.rotation_axis.position[:-1]
-dls_ig = dls2d.geometry.get_ImageGeometry()
+# # dls2d.geometry.config.system.rotation_axis.position = data.geometry.config.system.rotation_axis.position[:-1]
+# dls_ig = dls2d.geometry.get_ImageGeometry()
 
-print ("rotation axis", data.geometry.config.system.rotation_axis.position)
+# print ("rotation axis", data.geometry.config.system.rotation_axis.position)
+#%%
 
-recon = FBP(dls2d, dls_ig)
+# recon = FBP(data, data.geometry.get_ImageGeometry(), backend='pillow')
+recon = BP(data, data.geometry.get_ImageGeometry())
+show2D([data, recon])
 
-show2D([dls2d, recon])
+recon2 = FBP(data, ig)
+show2D([recon, recon2], title=['Back Projection', 'fbp'])
+
+# %%
