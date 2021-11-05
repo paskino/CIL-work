@@ -38,11 +38,14 @@ def rotate(ndarray, angle, centre=None, reshape=False, backend='scipy'):
         return rot
 
 
-def BP(data, ig):
+def BP(data, ig, out=None):
     '''Backward projection for 2D parallel beam'''
     spread = ig.allocate(0)
     spreadarr = spread.as_array()
-    recon = ig.allocate(0)
+    if out is None:
+        recon = ig.allocate(0)
+    else:
+        recon = out
     reconarr = recon.as_array()
     cor = data.geometry.config.system.rotation_axis.position
     try:
@@ -52,18 +55,21 @@ def BP(data, ig):
     except AssertionError:
         centre = None
         backend='pillow'
-    print (centre, cor, backend)
+    # print (centre, cor, backend)
     for i,angle in enumerate(data.geometry.angles):
         spread_detector_line(i, data, spreadarr)
         reconarr += rotate(spreadarr, angle, centre=centre, reshape=False, backend=backend)
     recon.fill(reconarr)
     return recon
 
-def FP(image, ag):
+def FP(image, ag, out=None):
     '''Forward projection for 2D parallel beam
     
     only works for centred data'''
-    acq = ag.allocate(0)
+    if out is None:
+        acq = ag.allocate(0)
+    else:
+        acq = out
     cor = acq.geometry.config.system.rotation_axis.position
     centre = None
     backend='scipy'
@@ -174,8 +180,61 @@ show2D([data, recon])
 recon2 = FBP(data, phantom.geometry)
 show2D([phantom, recon, recon2], title=['phantom', 'Back Projection', 'fbp'])
 
-# #%%
+#%%
+from cil.optimisation.operators import LinearOperator
 
+class ScipyProjector(LinearOperator):
+    def __init__(self, ig, ag):
+        super(ScipyProjector, self).__init__(domain_geometry=ig.copy(),\
+             range_geometry=ag.copy())
+
+    def direct(self, x, out=None):
+        if out is None:
+            return FP(x, self.range)
+        else:
+            FP(x, self.range, out=out)
+    def adjoint(self, x, out=None):
+        if out is None:
+            return BP(x, self.domain)
+        else:
+            BP(x, self.domain, out=out)
+
+
+from cil.optimisation.algorithms import CGLS
+
+A = ScipyProjector(phantom.geometry, data.geometry)
+
+
+
+algo = CGLS(operator=A, data=data, max_iteration=100)
+algo.run(5)
+
+#%%
+from cil.optimisation.algorithms import PDHG
+from cil.optimisation.functions import BlockFunction, L2NormSquared, MixedL21Norm, IndicatorBox
+from cil.optimisation.operators import GradientOperator, BlockOperator
+alpha_tv = 0.03
+f1 = alpha_tv * MixedL21Norm()
+f2 = L2NormSquared(b=data)
+F = BlockFunction(f1, f2)
+
+# Define BlockOperator K
+Grad = GradientOperator(phantom.geometry)
+K = BlockOperator(Grad, A)
+
+# Define Function G
+G = IndicatorBox(lower=0)
+
+
+# Setup and run PDHG
+pdhg_tv_explicit = PDHG(f = F, g = G, operator = K,
+            max_iteration = 1000,
+            update_objective_interval = 200)
+#%%
+pdhg_tv_explicit.run(1000, verbose=1)
+#%%
+show2D([phantom, recon, recon2, algo.solution, pdhg_tv_explicit.solution], \
+    title=['phantom', 'Back Projection', 'fbp', 'CGLS', 'TV'])
 
 
 # dls = dataexample.SYNCHROTRON_PARALLEL_BEAM_DATA.get()
@@ -230,3 +289,5 @@ show2D([phantom, recon, recon2], title=['phantom', 'Back Projection', 'fbp'])
 # # print ("rotation axis", data.geometry.config.system.rotation_axis.position)
 
 # # %%
+
+# %%
