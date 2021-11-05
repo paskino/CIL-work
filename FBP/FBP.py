@@ -2,11 +2,11 @@
 from scipy.ndimage import rotate as sprotate
 from cil.framework import ImageGeometry
 from cil.framework import AcquisitionGeometry
-import matplotlib.pyplot as plt
-from scipy.fft import fft, ifft, fftshift, fftfreq, ifftshift
+from cil.framework import ImageData
+from scipy.fft import fft, ifft, fftfreq
 import numpy as np
 from cil.utilities.display import show2D
-from cil.utilities import dataexample
+# from cil.utilities import dataexample
 from PIL import Image
     
 
@@ -20,51 +20,7 @@ def spread_detector_line(i, data, out):
 
 
 
-N = 255
-ig = ImageGeometry(N,N)
 
-ag = AcquisitionGeometry.create_Parallel2D()
-ag.set_panel(N)
-
-angles = np.linspace(0, 360, 100)
-ag.set_angles(angles, angle_unit='degree')
-
-
-#%% Create phantom
-# from cil.plugins import TomoPhantom
-from cil.framework import ImageGeometry, ImageData
-N = 255
-ig = ImageGeometry(N,N)
-# TomoPhantom.get_ImageData??
-# phantom = TomoPhantom.get_ImageData(12, ig)
-kernel_size = voxel_num_xy = N
-kernel_radius = (kernel_size ) // 2
-y, x = np.ogrid[-kernel_radius:kernel_radius+1, -kernel_radius:kernel_radius+1]
-
-circle1 = [5,0,0] #r,x,y
-dist1 = ((x - circle1[1])**2 + (y - circle1[2])**2)**0.5
-
-circle2 = [5,80,0] #r,x,y
-dist2 = ((x - circle2[1])**2 + (y - circle2[2])**2)**0.5
-
-circle3 = [25,0,80] #r,x,y
-dist3 = ((x - circle3[1])**2 + (y - circle3[2])**2)**0.5
-
-mask1 =(dist1 - circle1[0]).clip(0,1) 
-mask2 =(dist2 - circle2[0]).clip(0,1) 
-mask3 =(dist3 - circle3[0]).clip(0,1) 
-phantomarr = 1 - np.logical_and(np.logical_and(mask1, mask2),mask3)
-print (phantomarr.shape)
-
-phantom = ImageData(phantomarr, deep_copy=False, geometry=ig, suppress_warning=True)
-show2D(phantom)
-
-#%%
-from cil.io import NEXUSDataReader
-
-reader = NEXUSDataReader()
-reader.set_up(file_name='phantom.nxs')
-# data = reader.read()
 #%%
 
 def rotate(ndarray, angle, centre=None, reshape=False, backend='scipy'):
@@ -104,38 +60,20 @@ def BP(data, ig):
     return recon
 
 def FP(image, ag):
-    '''Forward projection for 2D parallel beam'''
+    '''Forward projection for 2D parallel beam
+    
+    only works for centred data'''
     acq = ag.allocate(0)
-    cor = data.geometry.config.system.rotation_axis.position
-    try:
-        np.testing.assert_array_equal(cor, np.zeros((3,), dtype=np.float32))
-        centre = cor
-        backend='pillow'
-    except AssertionError:
-        centre = None
-        backend='pillow'
-    for i,angle in enumerate(data.geometry.angles):
+    cor = acq.geometry.config.system.rotation_axis.position
+    centre = None
+    backend='scipy'
+    for i,angle in enumerate(acq.geometry.angles):
         # TODO: check why it is -angle
         fp = rotate(image.as_array(), -angle, centre=centre, reshape=False, backend=backend)
         # TODO: axis, why 0?
         acq.fill(np.sum(fp, axis=0), angle=i)
     return acq
 
-
-dls = dataexample.SYNCHROTRON_PARALLEL_BEAM_DATA.get()
-print ("##################################### DLS", dls.geometry)
-data = dls.log()
-data *= -1
-data = data.get_slice(vertical='centre')
-ig = data.geometry.get_ImageGeometry()
-recon = BP(data, ig)
-show2D(recon, title=['Back Projection'])
-# fwd = FP(phantom, data.geometry)
-# show2D([phantom, recon, recon2, \
-#         data, fwd, fwd - data], \
-#     title=['phantom', 'Back-Projection', 'FBP', \
-#            'ASTRA FWD', 'FP FWD', 'DIFF (FP - ASTRA)_FWD'],\
-#         cmap='gist_earth', num_cols=3)
 
 # %%
 
@@ -186,53 +124,109 @@ def FBP(data, ig, backend='scipy'):
         
     recon.fill(reconarr)
     return recon
-
 #%%
 
 
-from cil.utilities.display import show_geometry
+N = 255
+ig = ImageGeometry(N,N)
+
+ag = AcquisitionGeometry.create_Parallel2D()
+ag.set_panel(N)
+
+angles = np.linspace(0, 360, 100)
+ag.set_angles(angles, angle_unit='degree')
 
 
-dls = dataexample.SYNCHROTRON_PARALLEL_BEAM_DATA.get()
-print ("##################################### DLS", dls.geometry)
-data = dls.log()
-data *= -1
-show_geometry(data.geometry)
-# dls2d = dls.get_slice(vertical=70)
-# show2D(dls.get_slice(vertical='centre'))
-#%%
-from cil.processors import Slicer, CentreOfRotationCorrector
-data = CentreOfRotationCorrector.xcorr(slice_index='centre', projection_index=0, ang_tol=0.1)(data)
-print ("##################################### Centred", data.geometry)
-# dls2d = data.get_slice(vertical=70)
-# print ("##################################### Centred", dls2d.geometry)
-# get centre of rotation
-cor = data.geometry.config.system.rotation_axis.position
-px = data.geometry.config.panel.pixel_size[0]
-cor = [cor[0] * px , cor[1] * px]
-if cor[0] <= 0:
-    pad = (0, 2* int(cor[0]))
-else:
-    pad = (2* int(cor[0]), -1)
-print ("CENTRE of ROT", cor, pad)
+#%% Create phantom
 
-from cil.processors import Slicer
-dls2d = Slicer(roi={'horizontal': pad })(dls.get_slice(vertical=70))
-data = dls2d.log()
-data *= -1
-# dls2d.geometry = dls.get_slice(vertical=70).geometry.copy()
+ig = ImageGeometry(N,N)
+# TomoPhantom.get_ImageData??
+# phantom = TomoPhantom.get_ImageData(12, ig)
+kernel_size = voxel_num_xy = N
+kernel_radius = (kernel_size ) // 2
+y, x = np.ogrid[-kernel_radius:kernel_radius+1, -kernel_radius:kernel_radius+1]
 
-# # dls2d.geometry.config.system.rotation_axis.position = data.geometry.config.system.rotation_axis.position[:-1]
-# dls_ig = dls2d.geometry.get_ImageGeometry()
+circle1 = [5,0,0] #r,x,y
+dist1 = ((x - circle1[1])**2 + (y - circle1[2])**2)**0.5
 
-# print ("rotation axis", data.geometry.config.system.rotation_axis.position)
-#%%
+circle2 = [5,80,0] #r,x,y
+dist2 = ((x - circle2[1])**2 + (y - circle2[2])**2)**0.5
 
+circle3 = [25,0,80] #r,x,y
+dist3 = ((x - circle3[1])**2 + (y - circle3[2])**2)**0.5
+
+mask1 =(dist1 - circle1[0]).clip(0,1) 
+mask2 =(dist2 - circle2[0]).clip(0,1) 
+mask3 =(dist3 - circle3[0]).clip(0,1) 
+phantomarr = 1 - np.logical_and(np.logical_and(mask1, mask2),mask3)
+print (phantomarr.shape)
+
+phantom = ImageData(phantomarr, deep_copy=False, geometry=ig, suppress_warning=True)
+show2D(phantom)
+
+# Do something with it
+fwd = FP(phantom, ag)
+data = fwd
 # recon = FBP(data, data.geometry.get_ImageGeometry(), backend='pillow')
 recon = BP(data, data.geometry.get_ImageGeometry())
 show2D([data, recon])
 
-recon2 = FBP(data, ig)
-show2D([recon, recon2], title=['Back Projection', 'fbp'])
+recon2 = FBP(data, phantom.geometry)
+show2D([phantom, recon, recon2], title=['phantom', 'Back Projection', 'fbp'])
 
-# %%
+# #%%
+
+
+
+# dls = dataexample.SYNCHROTRON_PARALLEL_BEAM_DATA.get()
+# print ("##################################### DLS", dls.geometry)
+# data = dls.log()
+# data *= -1
+# data = data.get_slice(vertical='centre')
+# ig = data.geometry.get_ImageGeometry()
+# recon = BP(data, ig)
+# show2D(recon, title=['Back Projection'])
+
+# show2D([phantom, recon, recon2, \
+#         data, fwd, fwd - data], \
+#     title=['phantom', 'Back-Projection', 'FBP', \
+#            'ASTRA FWD', 'FP FWD', 'DIFF (FP - ASTRA)_FWD'],\
+#         cmap='gist_earth', num_cols=3)
+# from cil.utilities.display import show_geometry
+
+
+# dls = dataexample.SYNCHROTRON_PARALLEL_BEAM_DATA.get()
+# print ("##################################### DLS", dls.geometry)
+# data = dls.log()
+# data *= -1
+# show_geometry(data.geometry)
+# # dls2d = dls.get_slice(vertical=70)
+# # show2D(dls.get_slice(vertical='centre'))
+# #%%
+# from cil.processors import Slicer, CentreOfRotationCorrector
+# data = CentreOfRotationCorrector.xcorr(slice_index='centre', projection_index=0, ang_tol=0.1)(data)
+# print ("##################################### Centred", data.geometry)
+# # dls2d = data.get_slice(vertical=70)
+# # print ("##################################### Centred", dls2d.geometry)
+# # get centre of rotation
+# cor = data.geometry.config.system.rotation_axis.position
+# px = data.geometry.config.panel.pixel_size[0]
+# cor = [cor[0] * px , cor[1] * px]
+# if cor[0] <= 0:
+#     pad = (0, 2* int(cor[0]))
+# else:
+#     pad = (2* int(cor[0]), -1)
+# print ("CENTRE of ROT", cor, pad)
+
+# from cil.processors import Slicer
+# dls2d = Slicer(roi={'horizontal': pad })(dls.get_slice(vertical=70))
+# data = dls2d.log()
+# data *= -1
+# # dls2d.geometry = dls.get_slice(vertical=70).geometry.copy()
+
+# # # dls2d.geometry.config.system.rotation_axis.position = data.geometry.config.system.rotation_axis.position[:-1]
+# # dls_ig = dls2d.geometry.get_ImageGeometry()
+
+# # print ("rotation axis", data.geometry.config.system.rotation_axis.position)
+
+# # %%
