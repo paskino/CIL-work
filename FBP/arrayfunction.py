@@ -17,7 +17,6 @@ class MyArray(object):
         if func not in HANDLED_FUNCTIONS:
             return NotImplemented
         if not all(issubclass(t, MyArray) for t in types):
-            print ("here")
             return NotImplemented
         return HANDLED_FUNCTIONS[func](*args, **kwargs)
     def __init__(self, dlist):
@@ -31,27 +30,48 @@ class MyArray(object):
     @property
     def dtype(self):
         return np.int64
+    # https://stackoverflow.com/questions/40378427/numpy-formal-definition-of-array-like-objects
+    # def __array__(self, dtype=None):
+    #     if dtype is None:
+    #         dtype = self.dtype
+    #     if dtype != self.dtype:
+    #         return np.zeros(self.shape, dtype)
+    #     else:
+    #         ret = np.empty(self.shape, dtype=self.dtype)
+    #         for i, el in enumerate(self.list):
+    #             ret[i] = el
+    #         return ret
+    # def len(self):
+    #     return self.shape
+    
+    # def __getitem__(self, x):
+    #     return self.list[x]
 
     @implements(np.add)
     def __add__(self, *args, **kwargs):
-        if 'out' not in kwargs.keys():
+        print ("here")
+        out = kwargs.get('out', None)
+        if out is None:
             return MyArray([el + args[0] for el in self.list])
         else:
-            for el,ol in zip(self.list, out.list):
-                ol = args[0] + el
+            for i in enumerate(self.list):
+                out[i] = args[0] + self.list[i]
+            
     @implements(np.sum)
     def sum(self, *args, **kwargs):
         return sum(self.list)
 
 if __name__ == "__main__":
     A = MyArray([1,2])
-    
+    a = np.asarray(A)
+    print (a)
     print (np.sum(A))
     
     out = MyArray([0,0])
+
     B = np.add(A,2)
     print (B.list)
-    np.add(A,2, out=out)
+    np.add(A,2,out=out)
     print (out.list)
     
 
