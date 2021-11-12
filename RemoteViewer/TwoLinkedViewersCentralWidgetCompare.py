@@ -15,9 +15,9 @@ import glob, sys, os
 from functools import partial
 import posixpath, ntpath
 import posixpath as dpath
-from dvc_x.ui import RemoteFileDialog
-from dvc_x.ui import RemoteServerSettingDialog
-import dvc_x as drx
+from brem.ui import RemoteFileDialog
+from brem.ui import RemoteServerSettingDialog
+import brem as drx
 from eqt.threading import Worker
 from eqt.ui import FormDialog, UIFormFactory
 import tempfile
@@ -177,7 +177,7 @@ class SingleViewerCenterWidget(QtWidgets.QMainWindow):
         if os.path.exists(f):
             print("YEEEE")
 
-            reader = vtk.vtkNIFTIImageReader()
+            reader = vtk.vtkMetaImageReader()
             reader.SetFileName(f)
             reader.Update()
             
@@ -319,7 +319,7 @@ class AsyncCopyFromSSH(object):
             
             from time import sleep
             
-            a=drx.DVCRem(host=host,username=username,port=22,private_key=private_key)
+            a=drx.BasicRemoteExecutionManager(host=host,username=username,port=22,private_key=private_key)
 
             a.login(passphrase=False)
             
