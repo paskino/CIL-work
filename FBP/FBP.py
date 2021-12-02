@@ -186,8 +186,8 @@ if __name__ == '__main__':
     mask1 =(dist1 - circle1[0]).clip(0,1) 
     mask2 =(dist2 - circle2[0]).clip(0,1) 
     mask3 =(dist3 - circle3[0]).clip(0,1) 
-    phantomarr = 1 - np.logical_and(np.logical_and(mask1, mask2),mask3)
-    print (phantomarr.shape)
+    phantomarr = np.asarray(1 - np.logical_and(np.logical_and(mask1, mask2),mask3), dtype=np.float32)
+    print (phantomarr.shape, phantomarr.dtype)
 
     phantom = ImageData(phantomarr, deep_copy=False, geometry=ig, suppress_warning=True)
     show2D(phantom)
@@ -209,10 +209,12 @@ if __name__ == '__main__':
 
     A = ScipyProjector(phantom.geometry, data.geometry)
 
+    x0 = A.domain_geometry().allocate('random', dtype=np.float32)
+    N = A.norm(x_init=x0)
+    print (x0.dtype)
 
-
-    algo = CGLS(operator=A, data=data, max_iteration=100)
-    algo.run(5)
+    # algo = CGLS(operator=A, data=data, max_iteration=100)
+    # algo.run(5)
 
     #%%
     from cil.optimisation.algorithms import PDHG
@@ -225,6 +227,8 @@ if __name__ == '__main__':
 
     # Define BlockOperator K
     Grad = GradientOperator(phantom.geometry)
+    print(Grad.domain.dtype, Grad.range.dtype)
+    N1 = Grad.norm(x_init=Grad.domain.allocate('random', dtype=np.float32))
     K = BlockOperator(Grad, A)
 
     # Define Function G
