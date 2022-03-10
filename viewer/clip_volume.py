@@ -12,20 +12,18 @@ import os
 
 
 def update_clipping_plane(viewer, planew, interactor, event):
-    # print ("Catching ", event)
-    event_translator = planew.GetEventTranslator()
-    pevent = event_translator.GetTranslation(event)
-    # print ("pevent", pevent)
-    if pevent =='EndSelect' or pevent == 'Move' or pevent == 'NoEvent':
-        rep = planew.GetRepresentation()
-        plane = vtk.vtkPlane()
-        rep.GetPlane(plane)
-        # print (plane)
+    # event translator should you want to filter events
+    # event_translator = planew.GetEventTranslator()
+    # pevent = event_translator.GetTranslation(event)
     
-        viewer.volume.GetMapper().RemoveAllClippingPlanes()
-        viewer.volume.GetMapper().AddClippingPlane(plane)
-        viewer.volume.Modified()
-        viewer.getRenderer().Render()
+    rep = planew.GetRepresentation()
+    plane = vtk.vtkPlane()
+    rep.GetPlane(plane)
+    
+    viewer.volume.GetMapper().RemoveAllClippingPlanes()
+    viewer.volume.GetMapper().AddClippingPlane(plane)
+    viewer.volume.Modified()
+    viewer.getRenderer().Render()
     
 
 
@@ -56,7 +54,6 @@ def clipping_plane(viewer, interactor, event):
             viewer.plane = plane
             viewer.planew = planew
             func = functools.partial(update_clipping_plane, viewer, planew)
-            viewer.style.AddObserver('LeftButtonReleaseEvent', func, 0.5)
             planew.AddObserver('InteractionEvent', func, 0.5)
 
 if __name__ == '__main__':
