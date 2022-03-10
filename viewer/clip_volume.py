@@ -1,5 +1,8 @@
 import functools
-# from cil.io import NEXUSDataReader
+try:
+    from cil.io import NEXUSDataReader
+except ImportError:
+    pass
 
 
 # show2D([data, recon], fix_range=(-0.01,0.06))
@@ -62,25 +65,26 @@ if __name__ == '__main__':
 
     v.style.AddObserver('KeyPressEvent', partial(clipping_plane, v), 0.5)
 
-    # writer = NEXUSDataReader()
-    # writer.set_up(file_name='../CIL-tutorial/ovino.nxs')
-    # recon = writer.read()
-    # print (recon)
-    # v.setInputData(Converter.numpy2vtkImage(recon.as_array()))
+    reader = NEXUSDataReader()
+    reader.set_up(file_name='ovino2_8.nxs')
+    recon = reader.read()
     
-    reader = vtk.vtkNIFTIImageReader()
-    data_dir = os.path.abspath('C:/Users/ofn77899/Data/PETMR/MCIR')
-    fname  = 'gated_pdhg_Reg-FGP_TV-alpha3.0_nGates8_nSubsets1_pdhg_noPrecond_gamma1.0_wAC_wNorm_wRands-riters100_iters_5200.nii'
+    print (recon)
+    v.setInputData(Converter.numpy2vtkImage(recon.as_array()))
+    
+    # reader = vtk.vtkNIFTIImageReader()
+    # data_dir = os.path.abspath('C:/Users/ofn77899/Data/PETMR/MCIR')
+    # fname  = 'gated_pdhg_Reg-FGP_TV-alpha3.0_nGates8_nSubsets1_pdhg_noPrecond_gamma1.0_wAC_wNorm_wRands-riters100_iters_5200.nii'
 
-    data_dir = os.path.abspath('C:/Users/ofn77899/Downloads')
-    fname = 'rec_im_mcir_fista_8ms_tgv.nii'
+    # data_dir = os.path.abspath('C:/Users/ofn77899/Downloads')
+    # fname = 'rec_im_mcir_fista_8ms_tgv.nii'
 
-    fname = os.path.join(data_dir, fname)
+    # fname = os.path.join(data_dir, fname)
 
 
-    reader.SetFileName( fname )
-    reader.Update()
-    v.setInputData( reader.GetOutput() )
+    # reader.SetFileName( fname )
+    # reader.Update()
+    # v.setInputData( reader.GetOutput() )
     v.volume_colormap_name = 'magma'
 
 
