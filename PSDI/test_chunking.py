@@ -44,7 +44,7 @@ if do_hdf5:
     # compressed Nexus
     writer.file_name = os.path.abspath('scanner_data_chunk.nxs')
     shuffle = True
-    compression_level = 0
+    compression_level = 4
     compression_algo = 'gzip'
     writer.h5compress = [compression_algo, compression_level, shuffle]
     
