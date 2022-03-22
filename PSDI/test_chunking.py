@@ -8,6 +8,9 @@ import logging
 import timeit
 import time
 
+
+results = []
+
 logging.basicConfig(level=logging.INFO)
 assert_correct_values = False
 
@@ -30,12 +33,16 @@ do_hdf5 = True
 if do_hdf5:
     print(do_hdf5)
 #%%
+    res = []
+    results.append(res)
+    
     no_compression_nxs = 'scanner_data.nxs'
     writer = NEXUSDataWriter(data=scanner_data, file_name=no_compression_nxs)
     logging.info(f"writing to nexus")
     # writer.write()
     t = timeit.timeit('writer.write()', globals={'writer':writer}, number=repeat)/repeat
     logging.info(f"Writing to nexus with default NEXUSDataWriter took {t}s")
+    
 #%%
     action = f"loading from NEXUSDataReader default nexus {writer.file_name}"
     logging.info(action)
@@ -48,44 +55,53 @@ if do_hdf5:
         dt = dt * (i/(i+1)) + (t1-t0) / (i+1)
         
     logging.info(f"{action} took average {dt}s")
-
+    # Chunking	Compression	Compression opts	Bit shuffling	Final size	Write time	Read time	Repeats	Compression ratio
+    res = ['HDF5 no compression', 0, 0, 0, 0, os.stat(no_compression_nxs).st_size, t, dt, 1]
+    results.append(res)
+    
 #%%
     # compressed Nexus
-    writer = NEXUSDataWriter(data=scanner_data, 
-                             file_name=os.path.abspath('scanner_data_chunk.nxs'))
-    shuffle = True
-    compression_level = 4
-    compression_algo = None
-    writer.h5compress = [compression_algo, compression_level, shuffle]
-    
-    logging.info(f"Writing to nexus with chunk {chunks} and compression {writer.h5compress}")
-    writer.chunks = tuple(chunks)
+    h5tests = [ [ 'gzip', 4, True ],[ 'lzf', None, True ] ]
+    for compression_algo, compression_level, shuffle in h5tests:
+        writer = NEXUSDataWriter(data=scanner_data, 
+                                file_name=os.path.abspath('scanner_data_chunk.nxs'))
+        # shuffle = True
+        # compression_level = 4
+        # compression_algo = None
+        writer.h5compress = [compression_algo, compression_level, shuffle]
+        
+        logging.info(f"Writing to nexus with chunk {chunks} and compression {writer.h5compress}")
+        writer.chunks = tuple(chunks)
 
-    t = timeit.timeit('writer.write()', globals={'writer':writer}, number=repeat) / repeat
-    # writer.write()
-    
-    logging.info(f"Writing to nexus with chunk {chunks} and compression {writer.h5compress} took {t}s")
-#%%
-    # test compression ratio
-    import os
-    stat = []
-    for el in [no_compression_nxs, writer.file_name]:
-        stat.append(
-            os.stat(el).st_size
-        )
-    logging.info("Nexus compression ratio {}".format(stat[0]/stat[1]))
-#%%
-    action = f"loading from chunked nexus {writer.file_name}"
-    logging.info(action)
-    for i in range(repeat):
-        t0 = time.time()
-        dchunk = NEXUSDataReader(file_name=writer.file_name).read()
-        t1 = time.time()
-        # average time
-        logging.info("{} took {}s".format(action, t1-t0))
-        dt = dt * (i/(i+1)) + (t1-t0) / (i+1)
-    
-    logging.info(f"loading from chunked/compressed nexus {writer.file_name} took {dt}s")
+        t = timeit.timeit('writer.write()', globals={'writer':writer}, number=repeat) / repeat
+        # writer.write()
+        
+        logging.info(f"Writing to nexus with chunk {chunks} and compression {writer.h5compress} took {t}s")
+    #%%
+        # test compression ratio
+        import os
+        stat = []
+        for el in [no_compression_nxs, writer.file_name]:
+            stat.append(
+                os.stat(el).st_size
+            )
+        logging.info("Nexus compression ratio {}".format(stat[0]/stat[1]))
+    #%%
+        action = f"loading from chunked nexus {writer.file_name}"
+        logging.info(action)
+        for i in range(repeat):
+            t0 = time.time()
+            dchunk = NEXUSDataReader(file_name=writer.file_name).read()
+            t1 = time.time()
+            # average time
+            logging.info("{} took {}s".format(action, t1-t0))
+            dt = dt * (i/(i+1)) + (t1-t0) / (i+1)
+        
+        logging.info(f"loading from chunked/compressed nexus {writer.file_name} took {dt}s")
+
+        # Chunking	Compression	Compression opts	Bit shuffling	Final size	Write time	Read time	Repeats	Compression ratio
+        res = ['HDF5 compression', 1, compression_algo, compression_level, shuffle, os.stat(writer.file_name).st_size, t, dt, stat[0]/stat[1]]
+        results.append(res)
 
     if assert_correct_values:
         logging.info("assert array all close")
@@ -138,21 +154,14 @@ for i in range(repeat):
     t1 = time.time()
     # average time
     logging.info("{} took {}s".format(action, t1-t0))
-    dt = dt * (i/(i+1)) + (t1-t0) / (i+1)
+    t = t * (i/(i+1)) + (t1-t0) / (i+1)
 
     logging.info("Close store")
     store.close()
     
 
 print (arr.info)
-# test compression ratio
-import os
-stat = []
-for el in [no_compression_nxs, writer.file_name]:
-    stat.append(
-        os.stat(el).st_size
-    )
-logging.info("Zarr compression ratio {} {}".format(stat[0]/stat[1], stat))
+
 
 logging.info(f"Writing to Zarr with chunk {chunks} and compression {compressor} took {dt}s")
 
@@ -174,9 +183,25 @@ for i in range(repeat):
 
 # print (rzdata)
 logging.info("Reading Zarr in memory took {}s".format(dt))
+
+# Chunking	Compression	Compression opts	Bit shuffling	Final size	Write time	Read time	Repeats	Compression ratio
+
+# compression ratio is written in arr.info
+res = ['Zarr compression', 1, compressor.cname, compressor.clevel, compressor.shuffle, 
+        os.stat(zfname).st_size, t, dt, arr.nbytes/arr.nbytes_stored]
+results.append(res)
 #%%
 if assert_correct_values:
     np.testing.assert_allclose(rzdata, scanner_data.as_array())
 
+
+with open("results.csv", "w") as f:
+    import csv
+    w = csv.writer(f, dialect='excel')
+    for row in results:
+        w.writerow(row)
+
 logging.info("All OK.")
+
+
 # %%
