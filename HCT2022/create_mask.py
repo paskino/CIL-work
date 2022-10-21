@@ -148,7 +148,7 @@ def multiply_with_circle(rc, data, N, M, atol=1e-8, rtol=1e-5):
                 ret += data[i,j]
     return ret
 @numba.jit(nopython=True)
-def create_circle(rc, circle, N, M, atol=1e-8, rtol=1e-5):
+def create_circle(rc, circle, N, M, rim):
     '''fill an image with a circle
     
     rc = [radius, x0, y0]
@@ -159,7 +159,8 @@ def create_circle(rc, circle, N, M, atol=1e-8, rtol=1e-5):
         for j in numba.prange(N):
             d = np.sqrt( (i-rc[1])*(i-rc[1]) + (j-rc[2])*(j-rc[2]))
             # if np.isclose(d, rc[0], atol=1e-5):
-            if np.abs(d - rc[0]) <= (atol + rtol * np.abs(rc[0])):
+            # if np.abs(d - rc[0]) <= (atol + rtol * np.abs(rc[0])):
+            if d < rc[0] and d > rc[0] - rim:
                 circle[i,j] = 1
             else:
                 circle[i,j] = 0
@@ -186,14 +187,14 @@ def create_circle_p(rc, circle, N, M):
 
 rc = np.asarray([150, 250, 250])
 circle = mask * 0
-create_circle(rc, circle.array, *circle.shape, 1e-3, 5e-3)
+create_circle(rc, circle.array, *circle.shape, 10)
 show2D(circle)
 # %%
 show2D([circle, mask, mag3 * circle, mag3])
 # %%
-def f(x, data):
-    circle = data * 0
-    create_circle(x, circle.array, * circle.shape, 1e-3, 1e-1)
+def f(x, data, rim, circle):
+    
+    create_circle(x, circle.array, * circle.shape, rim)
     circle *= data
     return - np.log(circle.sum())
 
@@ -202,10 +203,10 @@ print (f(rc, mag3))
 
 from scipy.optimize import minimize
 x0 = np.asarray([mag3.shape[0]/2, mag3.shape[0]/2 , mag3.shape[1]/2])
-
+rim = 30
 # x0 = np.asarray([230.64850342, 275.29027125, 275.28706522])
 circle = mag3 * 0
-create_circle(x0, circle.array, *circle.shape, 1e-3, 1e-1)
+create_circle(x0, circle.array, *circle.shape, rim)
 import matplotlib.pyplot as plt
 plt.imshow(mag3.array, cmap='inferno', vmax = 200,  origin='lower')
 plt.imshow(circle.array , cmap='gray', alpha=0.4,origin='lower')
@@ -213,10 +214,12 @@ plt.imshow(circle.array , cmap='gray', alpha=0.4,origin='lower')
 plt.show()
 #%%
 # data can be mag3 or mask
-res = minimize(f, x0, args=(mag3), method='Nelder-Mead', tol=1e-6)
+res = minimize(f, x0, args=(mag3, rim, circle), method='Nelder-Mead', tol=1e-6)
 print(res.x)
 circle = mag3 * 0
-create_circle(res.x, circle.array, *circle.shape, 1e-3, 1e-1)
+xx = res.x * 1
+xx[0] = xx[0] - rim
+create_circle(xx, circle.array, *circle.shape, 3)
 #%%
 # show2D([circle, mag3 * circle], cmap=['gray', 'gray_r'])
 import matplotlib.pyplot as plt
