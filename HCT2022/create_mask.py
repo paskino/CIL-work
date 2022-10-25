@@ -32,6 +32,54 @@ def load_htc2022data(filename):
     data = AcquisitionData(sinogram, geometry=ag)
     return data
 
+def fit_circle(x,y):
+    '''Circle fitting by linear and nonlinear least squares in 2D
+    
+    Parameters
+    ----------
+    x : array with the x coordinates of the data
+    y : array with the y coordinates of the data. It has to have the
+        same length of x.
+
+    Returns
+    -------
+    x0 : x coordinate of the centre
+    y0 : y coordinate of the centre
+    r : radius of the circle
+    
+    References
+    ----------
+
+    Journal of Optimisation Theory and Applications
+    https://link.springer.com/article/10.1007/BF00939613
+    From https://core.ac.uk/download/pdf/35472611.pdf
+    '''
+    if len(x) != len(y):
+        raise ValueError('X and Y array are of different length')
+    data = np.vstack((x,y))
+
+    B = np.vstack((data, np.ones(len(x))))
+    d = np.sum(np.multiply(data,data), axis=0)
+
+    res = np.linalg.lstsq(B.T,d, rcond=None)
+    y = res[0]
+    x0 = y[0] * 0.5 
+    y0 = y[1] * 0.5
+    r = np.sqrt(x0**2 + y0**2 + y[2])
+
+    return (x0,y0,r)
+
+@numba.jit(nopython=True)
+def create_circle(rc, array, value, N, M):
+
+    for i in numba.prange(M):
+        for j in numba.prange(N):
+            d = np.sqrt( (i-rc[1])*(i-rc[1]) + (j-rc[2])*(j-rc[2]))
+            if d<rc[0]:
+                array[i,j] = value
+            else:
+                array[i,j] = 0
+
 #%%
 import os
 
@@ -89,7 +137,28 @@ mask.array[binary_mask] = 1.
 
 show2D([mag, mask])
 
+#%%
+# find each point x,y in the mask
+@numba.jit(nopython=True)
+def get_points_in_mask(mask, N, M, out, value=1):
+    '''gets the coordinates of the points in a mask'''
+    k = 0
+    for i in numba.prange(M):
+        for j in numba.prange(N):
+            if mask[i,j] == value:
+                out[0][k] = i
+                out[1][k] = j
+                k += 1
 
+num_datapoints = np.sum(binary_mask)
+out = np.zeros((2, num_datapoints), dtype=int)
+
+get_points_in_mask(binary_mask, *binary_mask.shape, out)
+x,y = out
+
+
+
+x0,y0,r = fit_circle(x,y)
 
 #%%
 @numba.jit(nopython=True)
@@ -112,57 +181,27 @@ def create_circumference(rc, circle, N, M, rim):
             else:
                 circle[i,j] = 0
 
-# %%
-# define the function to be fitted
-def f(x, data, rim, circle):
-    '''Objective function which multiplies the circumference with the data.
-    
-    Since we are doing minimisation we multiply by -1 and calculate the log as
-    this product is expected to change sharply'''
-    create_circumference(x, circle.array, * circle.shape, rim)
-    circle *= data
-    return - np.log(circle.sum())
+
 
 # %%
-# create initial guess by making a circumference centred in the middle of the 
-# image space and with max radius
-x0 = np.asarray([ig.shape[0]/2, ig.shape[0]/2 , ig.shape[1]/2])
-# having a large rim helps finding the minimum
-rim = 30
+mycircle = np.asarray([r,x0,y0])
+
+rim = 1
 
 circ = ig.allocate(0)
-create_circumference(x0, circ.array, *circ.shape, rim)
+create_circumference(mycircle, circ.array, *circ.shape, rim)
 import matplotlib.pyplot as plt
 plt.imshow(mag.array, cmap='inferno', vmax = 200,  origin='lower')
 plt.imshow(circ.array , cmap='gray', alpha=0.4,origin='lower')
 
 plt.show()
 #%%
-# run minimisation
-res = minimize(f, x0, args=(mag, rim, circ), method='Nelder-Mead', tol=1e-6)
-print(res.x)
-circ = ig.allocate(0)
-xx = res.x * 1
-# The fit returns the internal edge of the circumference
-xx[0] = xx[0] - rim
-# xx is our solution
+new_mask = ig.allocate(0)
 
-#%%
-# create the circumference for plotting
-create_circumference(xx, circ.array, *circ.shape, 3)
+create_circle(mycircle, new_mask.array, 1, *new_mask.shape)
+plt.imshow(mag.array, cmap='inferno', vmax = 200,  origin='lower')
+plt.imshow(new_mask.array , cmap='gray', alpha=0.4,origin='lower')
 
-# overlay the circumference to the gradient magnitude
-# default origin in show2D is lower
-plt.imshow(mag.array, cmap='inferno', vmax=200, origin='lower')
-plt.imshow(circ.array , cmap='gray', alpha=0.4, origin='lower')
 plt.show()
-# %%
-# overlay the circumference to the full data reconstruction for evaluation
-fdk = FDK(full_data, ig)
-recon = fdk.run()
-#%%
-# default origin in show2D is lower
-plt.imshow(recon.array, cmap='gray', origin='lower')
-plt.imshow(circ.array , cmap='inferno', alpha=0.5, origin='lower')
-plt.show()
+
 # %%
