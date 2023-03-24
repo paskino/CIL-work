@@ -23,6 +23,15 @@ reco2 = FBP(data_offset).run()
 
 show2D([reco1,reco2],title=['original','offset data'])
 #%%
+data_offset = data.copy()
+reco1 = FBP(data_offset).run()
+data_offset.geometry.config.system.rotation_axis.position=[20,0,0]
+data_offset.geometry.config.
+reco2 = FBP(data_offset).run()
+
+show2D([reco1,reco2],title=['original','offset data'])
+#%%
+
 
 corrector = CentreOfRotationCorrector.image_sharpness('centre',FBP_t)
 corrector.set_input(data_offset)
