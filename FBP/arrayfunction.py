@@ -94,15 +94,6 @@ class MyArray(object):
     def sum(self, *args, **kwargs):
         return sum(self.list)  # return self.list.ndim
     
-        
-    def __getitem__(self, x):
-        return self.list[x]
-    def __setitem__(self, key, value):
-        self.list[key] = value
-
-    def __str__(self):
-        return "MyArray " + str(self.list)
-    
 # @pysnooper.snoop()
 def main():
     logging.basicConfig(level=logging.DEBUG)
