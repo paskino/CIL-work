@@ -169,7 +169,10 @@ class SingleViewerCenterWidget(QtWidgets.QMainWindow):
             self.asyncCopy.SetRemoteFileName(dirname=self.files_to_get[0][0], filename=self.files_to_get[0][1])
             self.asyncCopy.SetDestinationDir(os.path.abspath(self.tempdir.name))
             self.asyncCopy.signals.finished.connect(lambda: self.visualise())
+            self.asyncCopy.signals.progress.connect(self.progress_output)
             self.asyncCopy.GetFile()
+    def progress_output(self, value):
+        print ("It is small step for a man, but a giant leap for mankind", value)
 
     def visualise(self):
         print("HERE WE ARE")
