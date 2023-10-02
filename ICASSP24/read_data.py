@@ -1,7 +1,7 @@
 #%%
 import numpy as np
 from cil.framework import ImageGeometry, AcquisitionGeometry, DataOrder
-from cil.utilities.display import show2D, show_geometry
+from cil.utilities.display import show2D, show_geometry, show1D
 from cil.framework import AcquisitionData
 from cil.recon import FDK
 from cil.optimisation.functions import TotalVariation, L2NormSquared, WeightedL2NormSquared
@@ -13,17 +13,22 @@ from cil.framework import ImageData
 import matplotlib.pyplot as plt
 import json
 import os
-from cil.utilities.display import show1D
 from cil.io import NEXUSDataWriter
-
+import sys
 
 
 #%%
 # setup
-n_subs = 36
-gamma = 10
-epochs = 20
-alpha = 100
+if len(sys.argv) > 1:
+     n_subs = int(sys.argv[1])
+     gamma  = float(sys.argv[2])
+     epochs = int(sys.argv[3])
+     alpha  = float(sys.argv[4])
+else:
+     n_subs = 36
+     gamma = 10
+     epochs = 20
+     alpha = 100
 
 amin = 0
 amax = 1.5
@@ -128,8 +133,10 @@ mfdk = fdk.apply_circular_mask(radius=radius, in_place=False)
 malgo = spdhg.solution.apply_circular_mask(radius=radius, in_place=False)
 mgt = gt.apply_circular_mask(radius=radius, in_place=False)
 
-# amax = max([mfdk.max(), malgo.max(), gt.max()])
-# amin = min([mfdk.min(), malgo.min(), gt.min()])
+amax = max([mfdk.max(), malgo.max(), gt.max()])
+amin = min([mfdk.min(), malgo.min(), gt.min()])
+# amin = 0
+# amax = 2
 diff = mgt-malgo
 lim = max(abs(diff.max()), abs(diff.min()))
 
@@ -146,7 +153,9 @@ show2D([el.get_slice(vertical=vertical_slice) \
      for el in [malgo, mfdk, mgt, diff]], \
      cmap=['viridis', 'viridis', 'viridis', 'seismic'],\
      title=[ f'SPDHG MSE {dmse}', 'FDK','Ground Truth', 'Difference'],\
-     fix_range=[(amin, amax), (amin, amax), (amin, amax), (-lim/2, lim/2)])
+     fix_range=[#(amin, amax), (amin, amax), (amin, amax),
+     None, None, None, 
+     (-lim/2, lim/2)])
 # %%
 
 show1D([el.get_slice(vertical=vertical_slice) \
