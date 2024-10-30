@@ -1,8 +1,7 @@
 import vtk
 import functools
+import math as m
 
-
-import vtk
 
 def create_sample_image(dims):
     # Create a black image
@@ -49,7 +48,7 @@ def observeCharEvent(img, box_widget, interactor, obj, event):
     print(event)
     if interactor.GetKeyCode() == 'n':
         print("n pressed")
-        observeBoxWidget(img, box_widget, event)
+        observeBoxWidget(img, box_widget, event, interactor)
 
 def getBoundingBox(img):
     bounds = img.GetExtent()
@@ -60,15 +59,15 @@ def getBoundingBox(img):
             bounds[4]*spacing[2] + origin[2], bounds[5]*spacing[2] + origin[2]]
     return bbox
 
-def observeBoxWidget(img, box_widget, event):
+def observeBoxWidget(img, box_widget, event, interactor):
     print("BoxWidget Event", event)
     
     reslice = vtk.vtkImageReslice()
     reslice.SetInterpolationModeToCubic()
     # Do not use the transform from the box widget
     # https://discourse.vtk.org/t/vtkimagereslice-with-vtkboxwidget/14776
-    # trans = vtk.vtkTransform()
-    # box_widget.GetTransform(trans)
+    trans = vtk.vtkTransform()
+    box_widget.GetTransform(trans)
     # reslice.SetInterpolationModeToLinear()
     # reslice.SetResliceTransform(trans)
     # reslice.TransformInputSamplingOn()
@@ -87,10 +86,8 @@ def observeBoxWidget(img, box_widget, event):
     # planes 4 and 5 are parallel and originally placed with normal parallel to z axis
     tshape = [0, 0, 0]
     origs = [0,0,0]
+    normal_vectors = [[1,0,0], [0,1,0], [0,0,1]]
     for i in range(planes.GetNumberOfPlanes()):
-        # get the location of the first plane on the various axes: 0, 2, 4
-        if i in [0,2,4]:
-            origs[i//2] = int(planes.GetPlane(i).GetOrigin()[i//2])
         for j in range(planes.GetNumberOfPlanes()):
             if i != j:
                 # find if planes are parallel by checking if the normals are parallel
@@ -106,16 +103,22 @@ def observeBoxWidget(img, box_widget, event):
                     dist = planes.GetPlane(i).DistanceToPlane(orig)
                     print ("Distance between plane {} and plane {} is {} {}".format(i, j, dist, dist * img.GetSpacing()[i//2]))
                     # this loop gets both (0, 1) and (1, 0) pairs
-                    tshape[i//2] = dist * img.GetSpacing()[i//2]
-                
-    print (f"origs {origs}")
-    extent = [int(el) + int(origs[i//2]) for i,el in enumerate([0, tshape[0] , 0, tshape[1] , 0, tshape[2]])]
+                    alpha = vmath.AngleBetweenVectors(planes.GetPlane(i//2).GetNormal(), normal_vectors[i//2])
+                    print (f"alpha {alpha}")
+                    tshape[i//2] = dist * img.GetSpacing()[i//2] / m.cos( alpha / 360 * 2 * m.pi)
+                    print (f"tshape {tshape}")
+
+    # use the transform to find the origin
+    origin = trans.TransformPoint(img.GetOrigin())
+    print (f"origin transf {origin}")
+    extent = [int(el) for i,el in enumerate([0, tshape[0] , 0, tshape[1] , 0, tshape[2]])]
     print ("Target shape {}, total number of voxels {}".format(tshape, tshape[0]*tshape[1]*tshape[2]))
     print ("Target extent {}".format(extent))
 
     
-    reslice.SetResliceAxesOrigin(*origs)
+    reslice.SetResliceAxesOrigin(*origin)
     plane_dir_cos = [planes.GetPlane(1).GetNormal(), planes.GetPlane(3).GetNormal(), planes.GetPlane(5).GetNormal()]
+    print ("Plane direction cosines", plane_dir_cos)
     reslice.SetResliceAxesDirectionCosines(*plane_dir_cos)
 
     reslice.SetOutputExtent(*extent)
@@ -124,7 +127,7 @@ def observeBoxWidget(img, box_widget, event):
     print ("Original spacing", orig_spacing)
     reslice.SetOutputSpacing(*orig_spacing)
     # reslice.SetOutputSpacing(*[ j / i for i,j in zip(img.GetDimensions(), tshape)])
-    reslice.AutoCropOutputOff()
+    reslice.AutoCropOutputOn()
     
     reslice.Update()
     
@@ -132,7 +135,9 @@ def observeBoxWidget(img, box_widget, event):
     # print (f"ResliceAxesDirectionCosines {reslice.GetResliceAxesDirectionCosines()} {plane_dir_cos}")
     # print (f"reslice extent {reslice.GetOutput().GetExtent()} {extent}")
 
-    # cropping 
+    # show a sphere in the origin
+    print (f"\n\norigs {origs}\n\n")
+    add_sphere_source(interactor, origin, radius=1)
 
 
     print ("reslice extent", reslice.GetOutput().GetExtent())
@@ -146,7 +151,19 @@ def observeBoxWidget(img, box_widget, event):
     writer.Write()
 
 
-
+def add_sphere_source(iren, center, radius=1):
+    sphere = vtk.vtkSphereSource()
+    sphere.SetCenter(*center)
+    sphere.SetRadius(radius)
+    sphere.Update()
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(sphere.GetOutputPort())
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    actor.GetProperty().SetColor(1,0,0)
+    iren.GetRenderWindow().GetRenderers().GetFirstRenderer().AddActor(actor)
+    iren.GetRenderWindow().GetRenderers().GetFirstRenderer().Render()
+    return actor
 
 img = create_sample_image([64,64,64])
 add_sphere(img, 9, [10, 10, 10])
