@@ -63,13 +63,16 @@ def getBoundingBox(img):
 def observeBoxWidget(img, box_widget, event):
     print("BoxWidget Event", event)
     
-    trans = vtk.vtkTransform()
-    box_widget.GetTransform(trans)
-    
     reslice = vtk.vtkImageReslice()
     reslice.SetInterpolationModeToCubic()
+    # Do not use the transform from the box widget
+    # https://discourse.vtk.org/t/vtkimagereslice-with-vtkboxwidget/14776
+    # trans = vtk.vtkTransform()
+    # box_widget.GetTransform(trans)
     # reslice.SetInterpolationModeToLinear()
-    reslice.SetResliceTransform(trans)
+    # reslice.SetResliceTransform(trans)
+    # reslice.TransformInputSamplingOn()
+    
     reslice.SetInputData(img)
     
     # To find the new volume extent we need to calculate the distance between
@@ -101,9 +104,9 @@ def observeBoxWidget(img, box_widget, event):
                     # print ("Plane {} origin {}".format(j, orig))
                     # print ("Plane {} origin {}".format(i, planes.GetPlane(i).GetOrigin()))
                     dist = planes.GetPlane(i).DistanceToPlane(orig)
-                    print ("Distance between plane {} and plane {} is {}".format(i, j, dist))
+                    print ("Distance between plane {} and plane {} is {} {}".format(i, j, dist, dist * img.GetSpacing()[i//2]))
                     # this loop gets both (0, 1) and (1, 0) pairs
-                    tshape[i//2] = dist
+                    tshape[i//2] = dist * img.GetSpacing()[i//2]
                 
     print (f"origs {origs}")
     extent = [int(el) + int(origs[i//2]) for i,el in enumerate([0, tshape[0] , 0, tshape[1] , 0, tshape[2]])]
@@ -111,15 +114,17 @@ def observeBoxWidget(img, box_widget, event):
     print ("Target extent {}".format(extent))
 
     
-    reslice.TransformInputSamplingOn()
-    # # reslice.SetOutputSpacing(*[ j / i for i,j in zip(img.GetDimensions(), tshape)])
-    # reslice.SetOutputSpacing(1,1,1)
-    # reslice.SetResliceAxesOrigin(*origs)
-    # plane_dir_cos = [planes.GetPlane(1).GetNormal(), planes.GetPlane(3).GetNormal(), planes.GetPlane(5).GetNormal()]
-    # reslice.SetResliceAxesDirectionCosines(*plane_dir_cos)
-    # # reslice.SetOutputExtent(*extent)
-    # reslice.SetOutputOrigin(*origs)
-    # reslice.AutoCropOutputOff()
+    reslice.SetResliceAxesOrigin(*origs)
+    plane_dir_cos = [planes.GetPlane(1).GetNormal(), planes.GetPlane(3).GetNormal(), planes.GetPlane(5).GetNormal()]
+    reslice.SetResliceAxesDirectionCosines(*plane_dir_cos)
+
+    reslice.SetOutputExtent(*extent)
+    reslice.SetOutputOrigin(0,0,0)
+    orig_spacing = img.GetSpacing()
+    print ("Original spacing", orig_spacing)
+    reslice.SetOutputSpacing(*orig_spacing)
+    # reslice.SetOutputSpacing(*[ j / i for i,j in zip(img.GetDimensions(), tshape)])
+    reslice.AutoCropOutputOff()
     
     reslice.Update()
     
@@ -127,12 +132,12 @@ def observeBoxWidget(img, box_widget, event):
     # print (f"ResliceAxesDirectionCosines {reslice.GetResliceAxesDirectionCosines()} {plane_dir_cos}")
     # print (f"reslice extent {reslice.GetOutput().GetExtent()} {extent}")
 
+    # cropping 
+
 
     print ("reslice extent", reslice.GetOutput().GetExtent())
     print ("reslice spacing", reslice.GetOutput().GetSpacing())
     print ("reslice origin", reslice.GetOutput().GetOrigin())
-
-    reslice.GetOutput().SetSpacing(*[ j / i for i,j in zip(img.GetDimensions(), tshape)])
 
     writer = vtk.vtkMetaImageWriter()
     writer.SetInputData(reslice.GetOutput())
@@ -151,6 +156,8 @@ add_parallelogram(img, [30, 50], [40, 50], [10, 50])
 style = vtk.vtkInteractorStyleTrackballCamera()
 ren = vtk.vtkRenderer()
 renWin = vtk.vtkRenderWindow()
+renWin.SetSize(800, 800)
+renWin.SetPosition(200,100)
 renWin.AddRenderer(ren)
 iren = vtk.vtkRenderWindowInteractor()
 iren.SetRenderWindow(renWin)
