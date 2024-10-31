@@ -85,8 +85,8 @@ def observeBoxWidget(img, box_widget, event, interactor):
     # planes 2 and 3 are parallel and originally placed with normal parallel to y axis
     # planes 4 and 5 are parallel and originally placed with normal parallel to z axis
     tshape = [0, 0, 0]
-    origs = [0,0,0]
-    normal_vectors = [[1,0,0], [0,1,0], [0,0,1]]
+    tspacing = list(img.GetSpacing())
+    normal_vectors = [[1,0,0], [1,0,0], [0,1,0],[0,1,0], [0,0,1],[0,0,1]]
     for i in range(planes.GetNumberOfPlanes()):
         for j in range(planes.GetNumberOfPlanes()):
             if i != j:
@@ -103,9 +103,12 @@ def observeBoxWidget(img, box_widget, event, interactor):
                     dist = planes.GetPlane(i).DistanceToPlane(orig)
                     print ("Distance between plane {} and plane {} is {} {}".format(i, j, dist, dist * img.GetSpacing()[i//2]))
                     # this loop gets both (0, 1) and (1, 0) pairs
+                    # Get the angle between the original normal direction and the new normal direction in radians
                     alpha = vmath.AngleBetweenVectors(planes.GetPlane(i//2).GetNormal(), normal_vectors[i//2])
-                    print (f"alpha {alpha}")
-                    tshape[i//2] = dist * img.GetSpacing()[i//2] / m.cos( alpha / 360 * 2 * m.pi)
+                    print (f"alpha {alpha} {alpha * 180 / m.pi}")
+                    # cos(alpha), with alpha in radians
+                    tspacing[i//2] = abs( img.GetSpacing()[i//2] / m.cos( alpha ) )
+                    tshape[i//2] = dist / tspacing[i//2]
                     print (f"tshape {tshape}")
 
     # use the transform to find the origin
@@ -123,20 +126,15 @@ def observeBoxWidget(img, box_widget, event, interactor):
 
     reslice.SetOutputExtent(*extent)
     reslice.SetOutputOrigin(0,0,0)
-    orig_spacing = img.GetSpacing()
-    print ("Original spacing", orig_spacing)
-    reslice.SetOutputSpacing(*orig_spacing)
+    print ("Original spacing", img.GetSpacing())
+    print ("Target spacing", tspacing)
+    reslice.SetOutputSpacing(*tspacing)
     # reslice.SetOutputSpacing(*[ j / i for i,j in zip(img.GetDimensions(), tshape)])
     reslice.AutoCropOutputOn()
     
     reslice.Update()
     
-    # print (f"ResliceAxesOrigin {reslice.GetResliceAxesOrigin()} {origs}")
-    # print (f"ResliceAxesDirectionCosines {reslice.GetResliceAxesDirectionCosines()} {plane_dir_cos}")
-    # print (f"reslice extent {reslice.GetOutput().GetExtent()} {extent}")
-
     # show a sphere in the origin
-    print (f"\n\norigs {origs}\n\n")
     add_sphere_source(interactor, origin, radius=1)
 
 
