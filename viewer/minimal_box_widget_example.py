@@ -1,6 +1,9 @@
 import vtk
 import functools
 import math as m
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
 
 
 def create_sample_image(dims):
@@ -101,33 +104,34 @@ def observeBoxWidget(img, box_widget, event, interactor):
                     # print ("Plane {} origin {}".format(j, orig))
                     # print ("Plane {} origin {}".format(i, planes.GetPlane(i).GetOrigin()))
                     dist = planes.GetPlane(i).DistanceToPlane(orig)
-                    print ("Distance between plane {} and plane {} is {} {}".format(i, j, dist, dist * img.GetSpacing()[i//2]))
+                    logging.debug("Distance between plane {} and plane {} is {} {}".format(i, j, dist, dist * img.GetSpacing()[i//2]))
                     # this loop gets both (0, 1) and (1, 0) pairs
                     # Get the angle between the original normal direction and the new normal direction in radians
+                    #TODO fix the angle calculation
                     alpha = vmath.AngleBetweenVectors(planes.GetPlane(i//2).GetNormal(), normal_vectors[i//2])
-                    print (f"alpha {alpha} {alpha * 180 / m.pi}")
+                    logging.debug (f"Plane {i//2} alpha {alpha} {alpha * 180 / m.pi}")
                     # cos(alpha), with alpha in radians
                     tspacing[i//2] = abs( img.GetSpacing()[i//2] / m.cos( alpha ) )
                     tshape[i//2] = dist / tspacing[i//2]
-                    print (f"tshape {tshape}")
+                    logging.debug (f"tshape {tshape}")
 
     # use the transform to find the origin
     origin = trans.TransformPoint(img.GetOrigin())
-    print (f"origin transf {origin}")
+    logging.debug (f"origin transf {origin}")
     extent = [int(el) for i,el in enumerate([0, tshape[0] , 0, tshape[1] , 0, tshape[2]])]
-    print ("Target shape {}, total number of voxels {}".format(tshape, tshape[0]*tshape[1]*tshape[2]))
-    print ("Target extent {}".format(extent))
+    logging.debug ("Target shape {}, total number of voxels {}".format(tshape, tshape[0]*tshape[1]*tshape[2]))
+    logging.debug ("Target extent {}".format(extent))
 
     
     reslice.SetResliceAxesOrigin(*origin)
     plane_dir_cos = [planes.GetPlane(1).GetNormal(), planes.GetPlane(3).GetNormal(), planes.GetPlane(5).GetNormal()]
-    print ("Plane direction cosines", plane_dir_cos)
+    logging.debug (f"Plane direction cosines {plane_dir_cos}")
     reslice.SetResliceAxesDirectionCosines(*plane_dir_cos)
 
     reslice.SetOutputExtent(*extent)
     reslice.SetOutputOrigin(0,0,0)
-    print ("Original spacing", img.GetSpacing())
-    print ("Target spacing", tspacing)
+    logging.debug (f"Original spacing {img.GetSpacing()}")
+    logging.debug (f"Target spacing {tspacing}")
     reslice.SetOutputSpacing(*tspacing)
     # reslice.SetOutputSpacing(*[ j / i for i,j in zip(img.GetDimensions(), tshape)])
     reslice.AutoCropOutputOn()
@@ -138,9 +142,9 @@ def observeBoxWidget(img, box_widget, event, interactor):
     add_sphere_source(interactor, origin, radius=1)
 
 
-    print ("reslice extent", reslice.GetOutput().GetExtent())
-    print ("reslice spacing", reslice.GetOutput().GetSpacing())
-    print ("reslice origin", reslice.GetOutput().GetOrigin())
+    logging.debug (f"reslice extent {reslice.GetOutput().GetExtent()}")
+    logging.debug (f"reslice spacing {reslice.GetOutput().GetSpacing()}")
+    logging.debug (f"reslice origin {reslice.GetOutput().GetOrigin()}")
 
     writer = vtk.vtkMetaImageWriter()
     writer.SetInputData(reslice.GetOutput())
