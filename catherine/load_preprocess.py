@@ -3,20 +3,26 @@ from cil.io import ZEISSDataReader
 from cil.processors import Slicer
 from cil.recon import FDK
 from cil.utilities.display import DataContainer, show2D
-
+import os
+import olefile
+import dxchange
+import numpy as np
+from cil.framework import AcquisitionData
+from tqdm import tqdm
+from cil.io import NEXUSDataWriter
+from cil.processors import TransmissionAbsorptionConverter, Normaliser, CentreOfRotationCorrector
+from cil.framework import DataContainer
+from cil.plugins.astra import FBP
 
 #%%
-import os
-fname = os.path.abspath("/home/ofn77899/Data/kidney.txrm")
-reader = ZEISSDataReader(fname)
-metadata = reader.get_metadata()
 
-print(metadata)
+fname = os.path.abspath("/home/ofn77899/Data/kidney.txrm")
+
 #%
 #############
 #Correction for multiple reference files
 # %%
-import olefile
+
 
 try:
     ole = olefile.OleFileIO(fname)
@@ -25,11 +31,11 @@ except IOError:
 
 # %%
 ole_metadata = ole.listdir()
-
-# for i in metadata:
-#     print(i)
 # %%
-from dxchange.reader import _read_ole_value, _read_ole_arr, _read_ole_image, _read_ole_struct
+for i in ole_metadata:
+    print(i)
+# %%
+from dxchange.reader import _read_ole_value, _read_ole_image
 
 # a = _read_ole_value(ole, 'ImageInfo/referencefile', '<260s')
 # print(a)
@@ -49,6 +55,12 @@ _multi_ref_image_data_type = ['MultiReferenceData', 'ImageInfo', 'DataType']
 # %%
 multi_ref_image_data_type = _read_ole_value(ole, concat_to_string(_multi_ref_image_data_type), '<1I')
 
+#%%
+reader = ZEISSDataReader(fname)
+metadata = reader.get_metadata()
+
+# print(metadata)
+
 # %%
 ref_images = []
 for el in _multi_ref_image:
@@ -56,12 +68,12 @@ for el in _multi_ref_image:
                                       multi_ref_image_data_type))
 
 # %%
-show2D(ref_images, cmap="viridis", fix_range=False)
-# %%
-show2D([el / ref_images[0] for el in ref_images[1:]], cmap="viridis")
-# %%
-average_ref_image = sum(ref_images) / len(ref_images)
-show2D(average_ref_image)
+# show2D(ref_images, cmap="viridis", fix_range=False)
+# # %%
+# show2D([el / ref_images[0] for el in ref_images[1:]], cmap="viridis")
+# # %%
+# average_ref_image = sum(ref_images) / len(ref_images)
+# show2D(average_ref_image)
 # %%
 # reader._metadata['reference'] = average_ref_image
 # #%%
@@ -73,13 +85,13 @@ show2D(average_ref_image)
 # proj_n = proj / average_ref_image
 # show2D([proj, average_ref_image, proj_n], title=["Projection", "Reference Image", "Normalised Projection"])
 
+
+
 # %%
-import dxchange
+
 dataarr, _ = dxchange.read_txrm(fname,None)
 #%%
-import numpy as np
-from cil.framework import AcquisitionData
-from tqdm import tqdm
+
 N = 800
 ref_num = 3
 # norm_dataarr = dataarr / average_ref_image
@@ -96,18 +108,19 @@ for num in tqdm(range(reader._metadata['number_of_images'])):
         axis=(1,0))
 
 acq_data = AcquisitionData(array=norm_data, deep_copy=False, geometry=reader._geometry.copy())
-
+#%%
+writer = NEXUSDataWriter(acq_data, "kidney.nxs")
+writer.write()
 #%%
 
 data2d =acq_data.get_slice(vertical="centre")
-from cil.io import NEXUSDataWriter
+
 writer = NEXUSDataWriter(data2d, "kidney_2D.nxs")
 writer.write()
 #%%
 
 show2D(data2d)
 # %%
-from cil.processors import TransmissionAbsorptionConverter, Normaliser, CentreOfRotationCorrector
 
 converter = TransmissionAbsorptionConverter()
 converter.set_input(data2d)
@@ -118,10 +131,9 @@ show2D(data2d_abs)
 find_cor = False
 if find_cor:
     # Find the centre of rotation manually
-    from cil.framework import DataContainer
+    
     array_list = []
     pixel_offsets = [3, 4, 5, 6, 7]
-    from cil.plugins.astra import FBP
     ig = data2d_abs.geometry.get_ImageGeometry()
     fbp = FBP(ig, data2d_abs.geometry, device="gpu")
 
@@ -150,7 +162,7 @@ if find_cor:
 # manually found centre of rotation to be 4 pixels
 cor = 4
 data2d_abs.geometry.set_centre_of_rotation(4, distance_units='pixels')
-from cil.plugins.astra import FBP
+
 ig = data2d_abs.geometry.get_ImageGeometry()
 fbp = FBP(ig, data2d_abs.geometry, device="gpu")
 # %%
@@ -167,4 +179,23 @@ show2D(recon_fbp.array[300:700,700:1200], fix_range=False)
 show2D(recon_fbp, fix_range=(-0.05, 0.3))
 # %%
 
+def __read_ole_value(ole, label, struct_fmt):
+    value = None
+    if ole.exists(label):
+        stream = ole.openstream(label)
+        data = stream.read()
+        # value = struct.unpack(struct_fmt, data)
+        return data
 
+energy = ['AMC', 'ImageInfo', 'Energy']
+energy_val = __read_ole_value(ole, concat_to_string(energy), '<i')
+print(f"Energy: {energy_val} eV")
+# %%
+import numpy as np
+
+b = energy_val
+arr_i32 = np.frombuffer(b, dtype='<i4')
+arr_f32 = np.frombuffer(b, dtype='<f4')
+print(arr_i32.shape, arr_i32[:10], arr_i32.min(), arr_i32.max())
+print(arr_f32.shape, arr_f32[:10], arr_f32.min(), arr_f32.max())
+# %%
