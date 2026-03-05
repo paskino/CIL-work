@@ -13,6 +13,8 @@ from cil.utilities.jupyter import islicer
 # %%
 
 def split_cone_beam_data(data, resolution=1, half="top", roi={}):
+    from cil.framework import ImageGeometry
+    from cil.processors import Slicer
     ig = data.geometry.get_ImageGeometry(resolution=resolution)
     if half == "top":
         ig_half = ImageGeometry(voxel_num_x=ig.voxel_num_x, 
