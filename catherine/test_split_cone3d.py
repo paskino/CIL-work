@@ -16,28 +16,28 @@ def split_cone_beam_data(data, resolution=1, half="top", roi={}):
     ig = data.geometry.get_ImageGeometry(resolution=resolution)
     if half == "top":
         ig_half = ImageGeometry(voxel_num_x=ig.voxel_num_x, 
-                               voxel_num_y=ig.voxel_num_y, 
-                               voxel_num_z=ig.voxel_num_z//2,
-                               voxel_size_x=ig.voxel_size_x, 
-                               voxel_size_y=ig.voxel_size_y,
-                               voxel_size_z=ig.voxel_size_z,
-                               center_x=ig.center_x,
-                               center_y=ig.center_y,
-                               center_z=ig.voxel_num_z / 4)
+                                voxel_num_y=ig.voxel_num_y, 
+                                voxel_num_z=ig.voxel_num_z//2,
+                                voxel_size_x=ig.voxel_size_x, 
+                                voxel_size_y=ig.voxel_size_y,
+                                voxel_size_z=ig.voxel_size_z,
+                                center_x=ig.center_x,
+                                center_y=ig.center_y,
+                                center_z=ig.voxel_num_z / 4 * ig.voxel_size_z)
         if 'bottom' in data.geometry.config.panel.origin.split("-"):
             half_range = (data.get_dimension_size("vertical")//2, data.get_dimension_size("vertical"),1)
         else:
             half_range = (0, data.get_dimension_size("vertical")//2,1)
     elif half == "bottom":
         ig_half = ImageGeometry(voxel_num_x=ig.voxel_num_x, 
-                               voxel_num_y=ig.voxel_num_y, 
-                               voxel_num_z=ig.voxel_num_z//2,
-                               voxel_size_x=ig.voxel_size_x, 
-                               voxel_size_y=ig.voxel_size_y,
-                               voxel_size_z=ig.voxel_size_z,
-                               center_x=ig.center_x,
-                               center_y=ig.center_y,
-                               center_z=-ig.voxel_num_z / 4 )
+                                voxel_num_y=ig.voxel_num_y, 
+                                voxel_num_z=ig.voxel_num_z//2,
+                                voxel_size_x=ig.voxel_size_x, 
+                                voxel_size_y=ig.voxel_size_y,
+                                voxel_size_z=ig.voxel_size_z,
+                                center_x=ig.center_x,
+                                center_y=ig.center_y,
+                                center_z=-ig.voxel_num_z / 4 * ig.voxel_size_z)
         if 'bottom' in data.geometry.config.panel.origin.split("-"):
             half_range = (0, data.get_dimension_size("vertical")//2,1)
         else:
