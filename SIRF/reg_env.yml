@@ -1,0 +1,11 @@
+name: idvc_qt6
+channels:
+  - conda-forge
+dependencies:
+  - python =3.11
+  - pip
+  - numpy #=2.4.6
+  - scipy #=1.17.1
+  - matplotlib-base >3.8 #=3.11.2
+  - simpleitk
+  - ipykernel
